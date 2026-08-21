@@ -4,6 +4,7 @@ import pytest
 from selection_engine import data_provider, indicators
 from selection_engine.cache import MemoryCache
 from selection_engine.session import SelectionSession
+from selection_engine.pipeline import MarketDataPipeline
 
 class FakeAkShare:
     def __init__(self): self.hist_calls = 0
@@ -118,3 +119,18 @@ def test_local_mode_never_calls_akshare(monkeypatch):
     result = session.apply_condition({"type": "industry", "value": "科技"})
     assert result["after"] == 1
     assert session.apply_condition({"type": "ma_cross_weekly"})["after"] == 1
+
+
+def test_pipeline_prioritizes_etfs_without_local_quotes(monkeypatch):
+    rows = [
+        {"code": "000001", "board": "主板", "close": None},
+        {"code": "510300", "board": "ETF", "close": None},
+        {"code": "159915", "board": "ETF", "close": 2.3},
+        {"code": "600000", "board": "主板", "close": 10.0},
+    ]
+    monkeypatch.setattr("selection_engine.pipeline.load_stocks", lambda: rows)
+    monkeypatch.setattr(MarketDataPipeline, "_state", lambda self: {"offset": 0})
+
+    codes, _ = MarketDataPipeline(batch_size=2)._batch_codes()
+
+    assert codes[0] == "510300"

@@ -81,9 +81,15 @@ class MarketDataPipeline:
         offset = state.get("offset", 0) % len(codes)
         retry_limit = min(len(state.get("failed_codes", [])), max(1, self.batch_size // 5))
         retries = [code for code in state.get("failed_codes", []) if code in codes][:retry_limit]
-        fresh_count = min(self.batch_size - len(retries), len(codes))
+        capacity = self.batch_size - len(retries)
+        missing_etfs = [
+            row["code"]
+            for row in stocks
+            if row.get("board") == "ETF" and row.get("close") is None
+        ][:capacity]
+        fresh_count = min(capacity - len(missing_etfs), len(codes))
         fresh = (codes + codes)[offset:offset + fresh_count]
-        selected = list(dict.fromkeys(retries + fresh))
+        selected = list(dict.fromkeys(retries + missing_etfs + fresh))
         return selected, (offset + fresh_count) % len(codes)
 
     def update_batch(self) -> dict[str, Any]:
