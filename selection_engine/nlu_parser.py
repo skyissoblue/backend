@@ -115,6 +115,8 @@ def parse_condition(
         client = OpenAI(
             api_key=os.getenv("DEEPSEEK_API_KEY"),
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            timeout=float(os.getenv("DEEPSEEK_TIMEOUT", "20")),
+            max_retries=1,
         )
         response = client.chat.completions.create(
             model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
@@ -128,6 +130,7 @@ def parse_condition(
             response_format={"type": "json_object"},
             max_tokens=500,
             temperature=0,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         content = response.choices[0].message.content
         if not content:

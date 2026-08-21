@@ -63,6 +63,7 @@ docker compose exec backend python -m factor_system.main status
 DEEPSEEK_API_KEY=your-key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_TIMEOUT=20
 ```
 
 ## 主要 API
