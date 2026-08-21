@@ -41,7 +41,7 @@ def _save_state(state: dict[str, Any]) -> None:
     temporary.replace(STATE_FILE)
 
 
-def _download(code: str) -> tuple[str, int, dict[str, Any]]:
+def _download(code: str, name: str) -> tuple[str, int, dict[str, Any]]:
     frame = data_provider.get_daily_kline(code, start_date=HISTORY_START)
     if frame.empty:
         raise ValueError("empty full-history response")
@@ -49,6 +49,7 @@ def _download(code: str) -> tuple[str, int, dict[str, Any]]:
     stored = local_store.load(code)
     row: dict[str, Any] = {
         "code": code,
+        "name": name,
         "close": float(stored["close"].iloc[-1]),
         "listed_days": len(stored),
     }
@@ -68,14 +69,17 @@ def run(limit: int | None = None) -> dict[str, Any]:
     stocks = [row for row in load_stocks() if row.get("board") != "ETF"]
     state = _load_state()
     completed = set(state["completed"])
-    pending = [row["code"] for row in stocks if row["code"] not in completed]
+    pending = [row for row in stocks if row["code"] not in completed]
     if limit is not None:
         pending = pending[: max(limit, 0)]
     succeeded = 0
     failed = 0
     rows = 0
     with ThreadPoolExecutor(max_workers=HISTORY_WORKERS) as executor:
-        futures = {executor.submit(_download, code): code for code in pending}
+        futures = {
+            executor.submit(_download, row["code"], row["name"]): row["code"]
+            for row in pending
+        }
         for future in as_completed(futures):
             code = futures[future]
             try:

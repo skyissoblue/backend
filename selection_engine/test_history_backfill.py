@@ -33,9 +33,9 @@ def test_full_history_backfill_is_resumable(monkeypatch, tmp_path: Path):
         history_backfill,
         "load_stocks",
         lambda: [
-            {"code": "000001", "board": "主板"},
-            {"code": "600000", "board": "主板"},
-            {"code": "510300", "board": "ETF"},
+            {"code": "000001", "name": "平安银行", "board": "主板"},
+            {"code": "600000", "name": "浦发银行", "board": "主板"},
+            {"code": "510300", "name": "沪深300ETF", "board": "ETF"},
         ],
     )
     monkeypatch.setattr(history_backfill.data_provider, "get_daily_kline", lambda code, start_date: _frame())
@@ -50,4 +50,5 @@ def test_full_history_backfill_is_resumable(monkeypatch, tmp_path: Path):
     assert second["succeeded"] == 1
     assert set(saved) == {"000001", "600000"}
     assert all(item["listed_days"] == 60 for item in snapshots)
+    assert {item["name"] for item in snapshots} == {"平安银行", "浦发银行"}
     assert "510300" not in saved
