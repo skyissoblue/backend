@@ -29,7 +29,7 @@ def build_system_prompt(
         ensure_ascii=False,
     )
     supported = ", ".join(SUPPORTED_TYPES)
-    return f"""你是 A 股选股条件解析器。把用户自然语言转换为一个结构化动作。
+    return f"""你是 A 股选股条件解析器。把用户自然语言转换为一个结构化动作。只输出合法 JSON 对象，不要输出解释或 Markdown。
 
 支持的条件类型：{supported}
 
