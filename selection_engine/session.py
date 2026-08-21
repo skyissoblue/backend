@@ -48,8 +48,7 @@ class SelectionSession:
 
     def apply_condition(self, condition: dict) -> dict:
         self._validate_condition(condition)
-        if condition.get("type") == "factor" and self._data_mode == "local" and factor_store is not None:
-            name = str(condition["name"])
+        for name in self._factor_names(condition):
             if name not in self._factor_values:
                 self._factor_values[name] = factor_store.batch_get_factor([stock["code"] for stock in self._universe], name)
         before = len(self._stocks)
@@ -61,6 +60,13 @@ class SelectionSession:
         before = len(self._stocks)
         if self._conditions:
             self._conditions.pop(); self._recalculate()
+        return self._result(before)
+
+    def remove_specific(self, condition: dict) -> dict:
+        before = len(self._stocks)
+        target_type, target_name = condition.get("type"), condition.get("name")
+        self._conditions = [item for item in self._conditions if not (item.get("type") == target_type and (target_name is None or item.get("name") == target_name))]
+        self._recalculate()
         return self._result(before)
 
     def reset(self) -> dict:
@@ -87,6 +93,8 @@ class SelectionSession:
             elif kind in {"rps", "volume_ratio", "market_cap", "pe"}: return self._compare(float(stock[{"rps":"rps_250"}.get(kind, kind)]), condition)
             elif kind in {"macd_cross", "kdj_cross"}: return False
             elif kind == "factor": return False
+            elif kind == "exclude_st": return "ST" not in str(stock.get("name", "")).upper()
+            elif kind in {"ma_cross", "ma_deviation"}: return False
         if self._data_mode == "local":
             if kind == "industry": return str(required(condition, "value")) in str(stock.get("industry") or "")
             elif kind == "board": return stock.get("board") == str(required(condition, "value"))
@@ -108,6 +116,17 @@ class SelectionSession:
                 if value is None: return False
                 if "op" not in condition: return bool(value) == bool(condition.get("value", True))
                 return self._compare(float(value), condition)
+            elif kind == "exclude_st": return "ST" not in str(stock.get("name", "")).upper()
+            elif kind == "ma_cross":
+                names = self._factor_names(condition)
+                values = [self._factor_values.get(name, {}).get(code) for name in names]
+                if any(value is None for value in values): return False
+                if "ma_fast" in condition:
+                    return float(values[0]) >= float(values[1]) if condition.get("cross", "golden") == "golden" else float(values[0]) <= float(values[1])
+                return stock.get("close") is not None and COMPARATORS[str(condition.get("op", ">="))](float(stock["close"]), float(values[0]))
+            elif kind == "ma_deviation":
+                value = self._factor_values.get(self._factor_names(condition)[0], {}).get(code)
+                return value not in {None, 0} and stock.get("close") is not None and abs(float(stock["close"]) - float(value)) / float(value) * 100 <= float(condition["max_pct"])
         if kind == "industry": return str(required(condition, "value")) in self._info(code)["industry"]
         elif kind == "board": return self._info(code)["board"] == str(required(condition, "value"))
         elif kind == "ma_cross_weekly":
@@ -129,6 +148,8 @@ class SelectionSession:
             return self._indicator(code, indicators.calc_kdj_cross, self._kline(code))
         elif kind == "factor":
             raise ValueError("factor conditions require local data mode")
+        elif kind == "exclude_st": return "ST" not in str(stock.get("name", "")).upper()
+        elif kind in {"ma_cross", "ma_deviation"}: raise ValueError("generic MA conditions require local data mode")
         raise ValueError(f"unsupported condition type: {kind!r}")
 
     @staticmethod
@@ -149,7 +170,7 @@ class SelectionSession:
     def _validate_condition(condition: dict) -> None:
         if not isinstance(condition, dict): raise TypeError("condition must be a dict")
         kind = condition.get("type")
-        if kind not in {"industry", "board", "ma_cross_weekly", "ma_deviation_weekly", "rps", "volume_ratio", "market_cap", "pe", "macd_cross", "kdj_cross", "factor"}: raise ValueError(f"unsupported condition type: {kind!r}")
+        if kind not in {"industry", "board", "exclude_st", "ma_cross", "ma_deviation", "ma_cross_weekly", "ma_deviation_weekly", "rps", "volume_ratio", "market_cap", "pe", "macd_cross", "kdj_cross", "factor"}: raise ValueError(f"unsupported condition type: {kind!r}")
         if kind in {"industry", "board"}: required(condition, "value")
         elif kind == "ma_deviation_weekly":
             if float(required(condition, "max_pct")) < 0: raise ValueError("max_pct must be non-negative")
@@ -165,6 +186,21 @@ class SelectionSession:
             if "op" in condition:
                 op = str(condition["op"]); required(condition, "value")
                 if op not in COMPARATORS: raise ValueError(f"unsupported comparison operator: {op!r}")
+        elif kind == "ma_cross":
+            if condition.get("period", "daily") != "daily": raise ValueError("only daily generic MA is supported")
+            periods = [condition.get("ma")] if "ma" in condition else [condition.get("ma_fast"), condition.get("ma_slow")]
+            if any(int(period or 0) not in {5, 10, 20, 60, 120, 250} for period in periods): raise ValueError("unsupported MA period")
+            if "ma" in condition and str(condition.get("op", ">=")) not in COMPARATORS: raise ValueError("unsupported comparison operator")
+        elif kind == "ma_deviation":
+            if condition.get("period", "daily") != "daily" or int(condition.get("ma", 0)) not in {5, 10, 20, 60, 120, 250}: raise ValueError("unsupported MA deviation period")
+            if float(required(condition, "max_pct")) < 0: raise ValueError("max_pct must be non-negative")
+
+    @staticmethod
+    def _factor_names(condition: dict) -> list[str]:
+        if factor_store is None or condition.get("type") not in {"factor", "ma_cross", "ma_deviation"}: return []
+        if condition["type"] == "factor": return [str(condition["name"])]
+        if "ma_fast" in condition: return [f"ma_{int(condition['ma_fast'])}", f"ma_{int(condition['ma_slow'])}"]
+        return [f"ma_{int(condition['ma'])}"]
 
     def _recalculate(self) -> None:
         stocks = list(self._universe)

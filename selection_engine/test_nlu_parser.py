@@ -1,88 +1,89 @@
-"""Tests for DeepSeek-backed natural-language condition parsing."""
+"""DeepSeek NLU, composite aliases, validation and context tests."""
+from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
 
-from selection_engine import nlu_parser
-from selection_engine.nlu_parser import ParsedCondition
+from selection_engine.nlu import aliases, parser
+from selection_engine.nlu.context import NLUContext
 
 
-class FakeResponses:
-    def __init__(self, payload):
-        self.payload = payload
-        self.last_request = None
-
+class FakeCompletions:
+    def __init__(self, payload): self.payload, self.request = payload, None
     def create(self, **kwargs):
-        self.last_request = kwargs
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=__import__("json").dumps(self.payload)))]
-        )
+        self.request = kwargs
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(self.payload)))])
 
 
 class FakeClient:
-    def __init__(self, payload):
-        self.chat = SimpleNamespace(completions=FakeResponses(payload))
+    def __init__(self, payload): self.chat = SimpleNamespace(completions=FakeCompletions(payload))
 
 
-@pytest.mark.parametrize(
-    ("text", "payload", "expected"),
-    [
-        (
-            "科技股",
-            {"action": "add", "condition": {"type": "industry", "value": "科技"}},
-            {"type": "industry", "value": "科技"},
-        ),
-        (
-            "站上10周线",
-            {"action": "add", "condition": {"type": "ma_cross_weekly"}},
-            {"type": "ma_cross_weekly"},
-        ),
-        (
-            "RPS大于87",
-            {"action": "add", "condition": {"type": "rps", "op": ">", "value": 87}},
-            {"type": "rps", "op": ">", "value": 87},
-        ),
-    ],
-)
-def test_parse_common_conditions(monkeypatch, text, payload, expected):
+@pytest.mark.parametrize("text,board", [
+    ("创业板", "创业板"), ("3开头的", "创业板"), ("300开头", "创业板"),
+    ("科创板的", "科创板"), ("688开头", "科创板"), ("主板", "主板"),
+    ("60开头", "主板"), ("00开头", "主板"), ("北交所", "北交所"), ("8开头", "北交所"),
+])
+def test_board_aliases(text, board):
+    assert aliases.match_alias(text)[0] == {"type": "board", "value": board}
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("站上10周线", {"type": "ma_cross_weekly"}),
+    ("站上20日线", {"type": "ma_cross", "period": "daily", "ma": 20, "op": ">="}),
+    ("跌破20日线", {"type": "ma_cross", "period": "daily", "ma": 20, "op": "<"}),
+    ("5日线上穿10日线", {"type": "ma_cross", "period": "daily", "ma_fast": 5, "ma_slow": 10, "cross": "golden"}),
+])
+def test_ma_aliases(text, expected):
+    assert parser.parse(text)["condition"] == expected
+
+
+def test_fuzzy_strength_and_composite():
+    assert parser.parse("最近比较强势的")["condition"] == {"type": "rps", "op": ">=", "value": 80}
+    result = parser.parse("科技股里站上10周线并且RPS大于87")
+    assert {item["type"] for item in result["conditions"]} == {"industry", "ma_cross_weekly", "rps"}
+    assert len(parser.parse("低位启动")["conditions"]) == 2
+    assert parser.parse("RPS排名前5%")["condition"] == {"type": "rps", "op": ">=", "value": 95}
+
+
+def test_deepseek_composite_and_context(monkeypatch):
+    payload = {"action": "add", "conditions": [
+        {"type": "board_match", "value": "创业板"},
+        {"type": "pattern", "name": "ma_bull_alignment", "value": True},
+    ]}
     fake = FakeClient(payload)
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: fake)
-    result = nlu_parser.parse_condition(text)
-    assert result["action"] == "add"
-    assert result["condition"] == expected
+    monkeypatch.setattr(parser, "match_alias", lambda text: [])
+    monkeypatch.setattr(parser, "DeepSeekClient", lambda **kwargs: fake)
+    result = parser.parse("寻找成长板中趋势结构健康的股票", [{"type": "rps", "op": ">", "value": 80}])
+    assert result["source"] == "deepseek"
+    assert result["conditions"][0] == {"type": "board", "value": "创业板"}
+    assert result["conditions"][1]["type"] == "factor"
+    assert "当前已有条件" in fake.chat.completions.request["messages"][0]["content"]
 
 
-def test_incremental_parse_includes_context(monkeypatch):
-    payload = {"action": "add", "condition": {"type": "volume_ratio", "op": ">", "value": 1.5}}
-    fake = FakeClient(payload)
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: fake)
-    context = [{"type": "industry", "value": "科技"}]
-    result = nlu_parser.parse_condition("结合已有条件继续筛选强势标的", context)
-    assert result["condition"]["type"] == "volume_ratio"
-    system_prompt = fake.chat.completions.last_request["messages"][0]["content"]
-    assert '"type": "industry"' in system_prompt
-    assert '"value": "科技"' in system_prompt
+def test_invalid_factor_is_rejected(monkeypatch):
+    fake = FakeClient({"action": "add", "conditions": [{"type": "alpha", "name": "invented_alpha", "op": ">", "value": 1}]})
+    monkeypatch.setattr(parser, "match_alias", lambda text: [])
+    monkeypatch.setattr(parser, "DeepSeekClient", lambda **kwargs: fake)
+    assert parser.parse("复杂且未知的量价逻辑")["action"] == "error"
 
 
-def test_api_failure_returns_error(monkeypatch):
-    def fail(**kwargs):
-        raise RuntimeError("service unavailable")
-    monkeypatch.setattr(nlu_parser, "OpenAI", fail)
-    result = nlu_parser.parse_condition("无法识别的复杂条件")
-    assert result == {"action": "error", "message": "service unavailable"}
+def test_alias_fallback_on_deepseek_failure(monkeypatch):
+    calls = iter([[], [{"type": "rps", "op": ">=", "value": 80}]])
+    monkeypatch.setattr(parser, "match_alias", lambda text: next(calls))
+    monkeypatch.setattr(parser, "DeepSeekClient", lambda **kwargs: (_ for _ in ()).throw(ConnectionError("offline")))
+    result = parser.parse("强势")
+    assert result["source"] == "alias_fallback"
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("科技股", {"action": "add", "condition": {"type": "industry", "value": "科技"}}),
-        ("站上10周线", {"action": "add", "condition": {"type": "ma_cross_weekly"}}),
-        ("RPS大于87", {"action": "add", "condition": {"type": "rps", "op": ">", "value": 87}}),
-        ("再加个成交量放大的", {"action": "add", "condition": {"type": "volume_ratio", "op": ">", "value": 1.5}}),
-        ("撤销上一步", {"action": "remove_last"}),
-    ],
-)
-def test_local_fallback_when_openai_unavailable(monkeypatch, text, expected):
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: (_ for _ in ()).throw(ConnectionError("offline")))
-    assert nlu_parser.parse_condition(text) == expected
+def test_control_and_invalid_input():
+    assert parser.parse("撤销上一步")["action"] == "remove_last"
+    assert parser.parse("重新来")["action"] == "reset"
+    assert parser.parse("")["action"] == "error"
+
+
+def test_context_format():
+    text = NLUContext([{"type": "board", "value": "创业板"}]).to_prompt()
+    assert "当前已有条件" in text and "创业板" in text

@@ -56,7 +56,8 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
-      DEEPSEEK_TIMEOUT: ${DEEPSEEK_TIMEOUT:-20}
+      DEEPSEEK_TIMEOUT: ${DEEPSEEK_TIMEOUT:-10}
+      DEEPSEEK_MAX_RETRIES: ${DEEPSEEK_MAX_RETRIES:-2}
       NO_PROXY: "*"
       no_proxy: "*"
     depends_on:

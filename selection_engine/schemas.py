@@ -51,6 +51,9 @@ class ConditionsResponse(RootModel[list[dict[str, Any]]]):
 class ParseApplyResponse(BaseModel):
     action: str
     condition: dict[str, Any] | None = None
+    conditions: list[dict[str, Any]] = Field(default_factory=list)
+    applied_conditions: list[dict[str, Any]] = Field(default_factory=list)
+    source: str | None = None
     message: str | None = None
     before: int | None = None
     after: int | None = None

@@ -57,14 +57,26 @@ docker compose exec backend python -m factor_system.main status
 
 ## DeepSeek 条件解析
 
-复杂自然语言条件使用 DeepSeek JSON Output 解析；常用中文条件优先由本地规则处理，即使模型服务不可用也能继续使用。配置项：
+NLU 使用三层链路：高置信度别名快速匹配、DeepSeek JSON Output 泛化解析、别名失败兜底。支持一句话拆分多个条件、上下文追加、撤销、重置、指定删除和同类替换。常用中文条件不依赖模型服务也能继续使用。
 
 ```env
 DEEPSEEK_API_KEY=your-key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_TIMEOUT=20
+DEEPSEEK_TIMEOUT=10
+DEEPSEEK_MAX_RETRIES=2
 ```
+
+语义解析并执行：
+
+```http
+POST /api/session/{session_id}/parse
+Content-Type: application/json
+
+{"text":"科技股里站上10周线并且RPS大于87"}
+```
+
+响应中的 `conditions` 是本次解析出的标准条件，`applied_conditions` 是会话当前全部条件，`source` 表示 `alias`、`deepseek` 或兜底来源。旧端点 `/api/session/{id}/parse-and-apply` 保持兼容。
 
 ## 主要 API
 

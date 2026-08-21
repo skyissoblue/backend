@@ -145,3 +145,19 @@ def test_parse_and_apply(client, monkeypatch):
     assert body["action"] == "add"
     assert body["before"] == 4
     assert body["after"] == 2
+
+
+def test_parse_endpoint_applies_multiple_conditions(client, monkeypatch):
+    session_id = _create_session(client)
+    monkeypatch.setattr(api, "parse_condition", lambda text, context: {
+        "action": "add", "source": "deepseek", "conditions": [
+            {"type": "industry", "value": "科技"},
+            {"type": "market_cap", "op": "<", "value": 20_000_000_000},
+        ],
+    })
+    response = client.post(f"/api/session/{session_id}/parse", json={"text": "科技股里强一点的"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["before"] == 4
+    assert body["after"] <= 2
+    assert len(body["applied_conditions"]) == 2

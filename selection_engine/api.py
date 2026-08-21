@@ -18,7 +18,7 @@ from .schemas import (
     SessionCreatedResponse,
     SessionResetResponse,
 )
-from .nlu_parser import parse_condition
+from .nlu import parse as parse_condition
 from .session import SelectionSession
 from .scheduler import start_scheduler, stop_scheduler
 
@@ -150,28 +150,50 @@ def parse_and_apply(
     session_id: str,
     request: ParseConditionRequest,
 ) -> dict[str, Any]:
-    session = _get_session(session_id)
-    parsed = parse_condition(request.text, session.conditions)
+    return _parse_and_apply(_get_session(session_id), request.text)
+
+
+@app.post("/api/session/{session_id}/parse", response_model=ParseApplyResponse)
+def parse_natural_language(session_id: str, request: ParseConditionRequest) -> dict[str, Any]:
+    return _parse_and_apply(_get_session(session_id), request.text)
+
+
+def _parse_and_apply(session: SelectionSession, text: str) -> dict[str, Any]:
+    parsed = parse_condition(text, session.conditions)
     action = parsed.get("action")
 
     if action == "error":
         return parsed
     if action == "add":
-        condition = parsed.get("condition")
-        if not isinstance(condition, dict):
+        conditions = parsed.get("conditions") or ([parsed["condition"]] if isinstance(parsed.get("condition"), dict) else [])
+        if not conditions:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="add action requires a condition",
+                detail="add action requires conditions",
             )
-        result = _run_engine(session.apply_condition, condition)
+        before = len(session.stocks)
+        for condition in conditions:
+            _run_engine(session.apply_condition, condition)
+        result = {"before": before, "after": len(session.stocks), "removed": max(before - len(session.stocks), 0), "stocks": session.stocks}
     elif action == "remove_last":
         result = session.remove_last()
     elif action == "reset":
         result = session.reset()
+    elif action == "remove_specific":
+        before = len(session.stocks)
+        for condition in parsed.get("conditions", []):
+            session.remove_specific(condition)
+        result = {"before": before, "after": len(session.stocks), "removed": max(before - len(session.stocks), 0), "stocks": session.stocks}
+    elif action == "replace":
+        conditions = parsed.get("conditions", [])
+        before = len(session.stocks)
+        for condition in conditions: session.remove_specific(condition)
+        for condition in conditions: _run_engine(session.apply_condition, condition)
+        result = {"before": before, "after": len(session.stocks), "removed": max(before - len(session.stocks), 0), "stocks": session.stocks}
     else:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="unsupported parser action",
         )
 
-    return {**parsed, **result}
+    return {**parsed, **result, "applied_conditions": session.conditions}
