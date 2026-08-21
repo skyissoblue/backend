@@ -1,0 +1,79 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-stock_picker}
+      MYSQL_USER: ${MYSQL_USER:-stock_picker}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./selection_engine/schema.sql:/docker-entrypoint-initdb.d/001-stock-picker.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: .
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DB: ${MYSQL_DATABASE:-stock_picker}
+      MYSQL_USER: ${MYSQL_USER:-stock_picker}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      SELECTION_ENGINE_DATA_MODE: local
+      STOCK_DATA_DIR: /data
+      DATA_SCHEDULER_ENABLED: ${DATA_SCHEDULER_ENABLED:-true}
+      UPDATE_INTERVAL_MINUTES: ${UPDATE_INTERVAL_MINUTES:-60}
+      UPDATE_BATCH_SIZE: ${UPDATE_BATCH_SIZE:-200}
+      DETAIL_BATCH_SIZE: ${DETAIL_BATCH_SIZE:-5}
+      REQUEST_DELAY: ${REQUEST_DELAY:-0.3}
+      FACTOR_BATCH_SIZE: ${FACTOR_BATCH_SIZE:-500}
+      FACTOR_MAX_WORKERS: ${FACTOR_MAX_WORKERS:-4}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      NO_PROXY: "*"
+      no_proxy: "*"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - stock_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  mysql_data:
+  redis_data:
+  stock_data:

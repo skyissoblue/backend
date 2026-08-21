@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+akshare
+pandas
+numpy
+pytest
+httpx
+openai
+redis
+mysql-connector-python>=8.3
+pyarrow>=14
+APScheduler>=3.10
+TA-Lib>=0.6.5
+tqdm>=4.66
