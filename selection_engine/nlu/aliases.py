@@ -95,6 +95,8 @@ def match_alias(text: str) -> list[dict[str, Any]]:
         conditions.append((.9, {"type": "market_cap", "op": ">=", "value": 50_000_000_000}))
     elif re.search(r"小盘股|小票|迷你盘", normalized):
         conditions.append((.9, {"type": "market_cap", "op": "<=", "value": 5_000_000_000}))
+    if re.search(r"估值合理|估值不高|不过分昂贵|不贵", normalized):
+        conditions.extend([(1.0, {"type": "pe", "op": ">", "value": 0}), (1.0, {"type": "pe", "op": "<=", "value": 30})])
 
     pattern_phrases = {
         "macd_golden_cross": r"MACD金叉|MACD翻红|DIF上穿DEA", "macd_dead_cross": r"MACD死叉|MACD翻绿|DIF下穿DEA",

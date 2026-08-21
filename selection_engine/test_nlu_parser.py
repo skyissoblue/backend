@@ -46,6 +46,8 @@ def test_fuzzy_strength_and_composite():
     assert {item["type"] for item in result["conditions"]} == {"industry", "ma_cross_weekly", "rps"}
     assert len(parser.parse("低位启动")["conditions"]) == 2
     assert parser.parse("RPS排名前5%")["condition"] == {"type": "rps", "op": ">=", "value": 95}
+    valuation = parser.parse("估值合理的公司")["conditions"]
+    assert valuation == [{"type": "pe", "op": ">", "value": 0}, {"type": "pe", "op": "<=", "value": 30}]
 
 
 def test_deepseek_composite_and_context(monkeypatch):
