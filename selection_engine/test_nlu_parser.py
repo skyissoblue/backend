@@ -1,4 +1,4 @@
-"""Tests for OpenAI-backed natural-language condition parsing."""
+"""Tests for DeepSeek-backed natural-language condition parsing."""
 
 from types import SimpleNamespace
 
@@ -13,16 +13,16 @@ class FakeResponses:
         self.payload = payload
         self.last_request = None
 
-    def parse(self, **kwargs):
+    def create(self, **kwargs):
         self.last_request = kwargs
         return SimpleNamespace(
-            output_parsed=ParsedCondition.model_validate(self.payload)
+            choices=[SimpleNamespace(message=SimpleNamespace(content=__import__("json").dumps(self.payload)))]
         )
 
 
 class FakeClient:
     def __init__(self, payload):
-        self.responses = FakeResponses(payload)
+        self.chat = SimpleNamespace(completions=FakeResponses(payload))
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ class FakeClient:
 )
 def test_parse_common_conditions(monkeypatch, text, payload, expected):
     fake = FakeClient(payload)
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda: fake)
+    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: fake)
     result = nlu_parser.parse_condition(text)
     assert result["action"] == "add"
     assert result["condition"] == expected
@@ -56,17 +56,17 @@ def test_parse_common_conditions(monkeypatch, text, payload, expected):
 def test_incremental_parse_includes_context(monkeypatch):
     payload = {"action": "add", "condition": {"type": "volume_ratio", "op": ">", "value": 1.5}}
     fake = FakeClient(payload)
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda: fake)
+    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: fake)
     context = [{"type": "industry", "value": "科技"}]
     result = nlu_parser.parse_condition("结合已有条件继续筛选强势标的", context)
     assert result["condition"]["type"] == "volume_ratio"
-    system_prompt = fake.responses.last_request["input"][0]["content"]
+    system_prompt = fake.chat.completions.last_request["messages"][0]["content"]
     assert '"type": "industry"' in system_prompt
     assert '"value": "科技"' in system_prompt
 
 
 def test_api_failure_returns_error(monkeypatch):
-    def fail():
+    def fail(**kwargs):
         raise RuntimeError("service unavailable")
     monkeypatch.setattr(nlu_parser, "OpenAI", fail)
     result = nlu_parser.parse_condition("无法识别的复杂条件")
@@ -84,5 +84,5 @@ def test_api_failure_returns_error(monkeypatch):
     ],
 )
 def test_local_fallback_when_openai_unavailable(monkeypatch, text, expected):
-    monkeypatch.setattr(nlu_parser, "OpenAI", lambda: (_ for _ in ()).throw(ConnectionError("offline")))
+    monkeypatch.setattr(nlu_parser, "OpenAI", lambda **kwargs: (_ for _ in ()).throw(ConnectionError("offline")))
     assert nlu_parser.parse_condition(text) == expected

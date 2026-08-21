@@ -1,9 +1,10 @@
-"""Parse natural-language stock-selection instructions with OpenAI."""
+"""Parse natural-language stock-selection instructions with DeepSeek."""
 
 from __future__ import annotations
 
 import os
 import re
+import json
 from typing import Any, Literal
 
 from openai import OpenAI
@@ -111,28 +112,27 @@ def parse_condition(
         return local_result
 
     try:
-        client = OpenAI()
-        response = client.responses.parse(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-            input=[
+        client = OpenAI(
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        )
+        response = client.chat.completions.create(
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            messages=[
                 {
                     "role": "system",
                     "content": build_system_prompt(context_conditions),
                 },
                 {"role": "user", "content": text.strip()},
             ],
-            text_format=ParsedCondition,
+            response_format={"type": "json_object"},
+            max_tokens=500,
+            temperature=0,
         )
-        parsed = response.output_parsed
-        if parsed is None:
+        content = response.choices[0].message.content
+        if not content:
             return {"action": "error", "message": "model returned no parsed output"}
-        if isinstance(parsed, BaseModel):
-            result = parsed.model_dump(exclude_none=True)
-        elif isinstance(parsed, dict):
-            result = parsed
-        else:
-            raise TypeError("unexpected OpenAI response type")
-        return result
+        return ParsedCondition.model_validate(json.loads(content)).model_dump(exclude_none=True)
     except Exception as error:
         fallback = _parse_locally(text)
         if fallback is not None:

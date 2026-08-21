@@ -55,6 +55,16 @@ docker compose exec backend python -m factor_system.main status
 
 查看因子目录：`GET /api/factors`。
 
+## DeepSeek 条件解析
+
+复杂自然语言条件使用 DeepSeek JSON Output 解析；常用中文条件优先由本地规则处理，即使模型服务不可用也能继续使用。配置项：
+
+```env
+DEEPSEEK_API_KEY=your-key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
 ## 主要 API
 
 - `POST /api/session`
