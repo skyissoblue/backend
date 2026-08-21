@@ -144,3 +144,21 @@ def test_pipeline_prioritizes_etfs_without_local_quotes(monkeypatch):
     codes, _ = MarketDataPipeline(batch_size=2)._batch_codes()
 
     assert codes[0] == "510300"
+
+
+def test_pipeline_rotates_failed_etfs(monkeypatch):
+    rows = [
+        {"code": "158001", "board": "ETF", "close": None},
+        {"code": "158002", "board": "ETF", "close": None},
+        {"code": "159001", "board": "ETF", "close": None},
+    ]
+    monkeypatch.setattr("selection_engine.pipeline.load_stocks", lambda: rows)
+    monkeypatch.setattr(
+        MarketDataPipeline,
+        "_state",
+        lambda self: {"offset": 0, "failed_codes": ["158001", "158002"]},
+    )
+
+    codes, _ = MarketDataPipeline(batch_size=2)._batch_codes()
+
+    assert codes == ["158001", "159001"]

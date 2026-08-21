@@ -79,13 +79,16 @@ class MarketDataPipeline:
             return [], 0
         state = self._state()
         offset = state.get("offset", 0) % len(codes)
-        retry_limit = min(len(state.get("failed_codes", [])), max(1, self.batch_size // 5))
-        retries = [code for code in state.get("failed_codes", []) if code in codes][:retry_limit]
+        failed_codes = [code for code in state.get("failed_codes", []) if code in codes]
+        retry_limit = min(len(failed_codes), max(1, self.batch_size // 5))
+        retries = failed_codes[:retry_limit]
         capacity = self.batch_size - len(retries)
         missing_etfs = [
             row["code"]
             for row in stocks
-            if row.get("board") == "ETF" and row.get("close") is None
+            if row.get("board") == "ETF"
+            and row.get("close") is None
+            and row["code"] not in failed_codes
         ][:capacity]
         fresh_count = min(capacity - len(missing_etfs), len(codes))
         fresh = (codes + codes)[offset:offset + fresh_count]
