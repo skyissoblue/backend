@@ -74,6 +74,12 @@ def test_indicators(fake_ak):
     assert indicators.calc_volume_ratio(frame) > 0
     assert isinstance(indicators.calc_ma_deviation_weekly(frame), float)
 
+@pytest.mark.parametrize("period", ["daily", "weekly", "monthly", "yearly"])
+def test_period_ma_supports_all_timeframes(period):
+    dates = pd.bdate_range("2000-01-01", periods=6500)
+    frame = pd.DataFrame({"date": dates, "close": range(1, len(dates) + 1)})
+    assert indicators.calc_period_ma(frame, 5, period) > 0
+
 def test_rps_ranks_whole_market():
     closes = {"A":pd.Series([10,20]), "B":pd.Series([10,15]), "C":pd.Series([10,9])}
     assert indicators.calc_rps_250("A", closes) == 100.0
@@ -129,6 +135,20 @@ def test_local_mode_never_calls_akshare(monkeypatch):
     result = session.apply_condition({"type": "industry", "value": "科技"})
     assert result["after"] == 1
     assert session.apply_condition({"type": "ma_cross_weekly"})["after"] == 1
+
+
+@pytest.mark.parametrize("period", ["daily", "weekly", "monthly", "yearly"])
+def test_local_session_executes_period_ma(monkeypatch, period):
+    dates = pd.bdate_range("1995-01-01", periods=8000)
+    frame = pd.DataFrame({"date": dates, "close": range(1, len(dates) + 1)})
+    local_stocks = [{"code": "000001", "name": "测试", "board": "主板", "close": 8000.0}]
+    monkeypatch.setenv("SELECTION_ENGINE_DATA_MODE", "local")
+    monkeypatch.setattr("selection_engine.database.load_stocks", lambda limit=None: local_stocks)
+    monkeypatch.setattr("selection_engine.local_store.load", lambda code: frame)
+
+    result = SelectionSession().apply_condition({"type": "ma_cross", "period": period, "ma": 5, "op": ">="})
+
+    assert result["after"] == 1
 
 
 def test_pipeline_prioritizes_etfs_without_local_quotes(monkeypatch):

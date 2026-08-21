@@ -45,21 +45,22 @@ def match_alias(text: str) -> list[dict[str, Any]]:
     if re.search(r"(排除|不要|去掉|非)\*?ST|去掉垃圾股", normalized, re.I):
         conditions.append((1.0, {"type": "exclude_st", "value": True}))
 
-    weekly = re.search(r"(?:站上|上穿|高于|在)(\d+|十|二十)周(?:线|均线)|(?:周线|周均线)MA?(\d+)(?:以上|上方)", normalized, re.I)
-    if weekly:
-        raw = next(group for group in weekly.groups() if group)
-        period = {"十": 10, "二十": 20}.get(raw, int(raw) if raw.isdigit() else 10)
-        conditions.append((1.0, {"type": "ma_cross", "period": "weekly", "ma": period, "op": ">="}))
-    daily = re.search(r"(?:站上|高于)(\d+)日(?:线|均线)|(?:跌破|低于)(\d+)日(?:线|均线)", normalized)
-    if daily:
-        above, below = daily.groups()
-        conditions.append((1.0, {"type": "ma_cross", "period": "daily", "ma": int(above or below), "op": ">=" if above else "<"}))
-    cross = re.search(r"(?:MA)?(\d+)(?:日线?|日均线?)(?:金叉|上穿)(?:MA)?(\d+)(?:日线?|日均线?)", normalized, re.I)
+    period_names = {"日": "daily", "周": "weekly", "月": "monthly", "年": "yearly"}
+    standing = re.search(r"(?:站上|高于|在|(?:股价|价格)上穿)(\d+|十|二十)(日|周|月|年)(?:线|均线)|(?:跌破|低于)(\d+|十|二十)(日|周|月|年)(?:线|均线)", normalized, re.I)
+    if standing:
+        above_value, above_period, below_value, below_period = standing.groups()
+        raw = above_value or below_value
+        window = {"十": 10, "二十": 20}.get(raw, int(raw) if raw and raw.isdigit() else 10)
+        conditions.append((1.0, {"type": "ma_cross", "period": period_names[above_period or below_period], "ma": window, "op": ">=" if above_value else "<"}))
+    reverse = re.search(r"(日|周|月|年)(?:线|均线)MA?(\d+)(?:以上|上方)", normalized, re.I)
+    if reverse:
+        conditions.append((1.0, {"type": "ma_cross", "period": period_names[reverse.group(1)], "ma": int(reverse.group(2)), "op": ">="}))
+    cross = re.search(r"(?:MA)?(\d+)(日|周|月|年)(?:均线|线)(金叉|上穿|死叉|下穿)(?:MA)?(\d+)(?:日|周|月|年)(?:均线|线)", normalized, re.I)
     if cross:
-        conditions.append((1.0, {"type": "ma_cross", "period": "daily", "ma_fast": int(cross.group(1)), "ma_slow": int(cross.group(2)), "cross": "golden"}))
-    deviation = re.search(r"(?:偏离|乖离)(\d+)(?:周|日)(?:线|均线).{0,8}?(\d+(?:\.\d+)?)%?", normalized)
+        conditions.append((1.0, {"type": "ma_cross", "period": period_names[cross.group(2)], "ma_fast": int(cross.group(1)), "ma_slow": int(cross.group(4)), "cross": "death" if cross.group(3) in {"死叉", "下穿"} else "golden"}))
+    deviation = re.search(r"(?:偏离|乖离)(\d+)(日|周|月|年)(?:线|均线).{0,8}?(\d+(?:\.\d+)?)%?", normalized)
     if deviation:
-        conditions.append((1.0, {"type": "ma_deviation", "period": "weekly" if "周" in deviation.group(0) else "daily", "ma": int(deviation.group(1)), "max_pct": float(deviation.group(2))}))
+        conditions.append((1.0, {"type": "ma_deviation", "period": period_names[deviation.group(2)], "ma": int(deviation.group(1)), "max_pct": float(deviation.group(3))}))
 
     rps_front = re.search(r"RPS(?:排名)?前(\d+(?:\.\d+)?)%", normalized, re.I)
     rps = _comparison(normalized, "RPS")

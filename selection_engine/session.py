@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from typing import Any
-from . import data_provider, indicators
+from . import data_provider, indicators, local_store
 from . import database
 from .cache import create_cache
 from .conditions import COMPARATORS, required
@@ -118,15 +118,29 @@ class SelectionSession:
                 return self._compare(float(value), condition)
             elif kind == "exclude_st": return "ST" not in str(stock.get("name", "")).upper()
             elif kind == "ma_cross":
-                names = self._factor_names(condition)
-                values = [self._factor_values.get(name, {}).get(code) for name in names]
-                if any(value is None for value in values): return False
-                if "ma_fast" in condition:
-                    return float(values[0]) >= float(values[1]) if condition.get("cross", "golden") == "golden" else float(values[0]) <= float(values[1])
-                return stock.get("close") is not None and COMPARATORS[str(condition.get("op", ">="))](float(stock["close"]), float(values[0]))
+                frame = self._cache.get_or_calc(code, local_store.load, code)
+                if frame.empty: return False
+                try:
+                    if "ma_fast" in condition:
+                        return indicators.calc_period_ma_cross(
+                            frame,
+                            int(condition["ma_fast"]),
+                            int(condition["ma_slow"]),
+                            str(condition.get("period", "daily")),
+                            str(condition.get("cross", "golden")),
+                        )
+                    ma = indicators.calc_period_ma(frame, int(condition["ma"]), str(condition.get("period", "daily")))
+                    return COMPARATORS[str(condition.get("op", ">="))](float(frame["close"].iloc[-1]), ma)
+                except (ValueError, IndexError, KeyError):
+                    return False
             elif kind == "ma_deviation":
-                value = self._factor_values.get(self._factor_names(condition)[0], {}).get(code)
-                return value not in {None, 0} and stock.get("close") is not None and abs(float(stock["close"]) - float(value)) / float(value) * 100 <= float(condition["max_pct"])
+                frame = self._cache.get_or_calc(code, local_store.load, code)
+                if frame.empty: return False
+                try:
+                    value = indicators.calc_period_ma(frame, int(condition["ma"]), str(condition.get("period", "daily")))
+                    return value != 0 and abs(float(frame["close"].iloc[-1]) - value) / value * 100 <= float(condition["max_pct"])
+                except (ValueError, IndexError, KeyError):
+                    return False
         if kind == "industry": return str(required(condition, "value")) in self._info(code)["industry"]
         elif kind == "board": return self._info(code)["board"] == str(required(condition, "value"))
         elif kind == "ma_cross_weekly":
@@ -187,20 +201,18 @@ class SelectionSession:
                 op = str(condition["op"]); required(condition, "value")
                 if op not in COMPARATORS: raise ValueError(f"unsupported comparison operator: {op!r}")
         elif kind == "ma_cross":
-            if condition.get("period", "daily") != "daily": raise ValueError("only daily generic MA is supported")
+            if condition.get("period", "daily") not in indicators.PERIOD_RULES: raise ValueError("unsupported MA period type")
             periods = [condition.get("ma")] if "ma" in condition else [condition.get("ma_fast"), condition.get("ma_slow")]
             if any(int(period or 0) not in {5, 10, 20, 60, 120, 250} for period in periods): raise ValueError("unsupported MA period")
             if "ma" in condition and str(condition.get("op", ">=")) not in COMPARATORS: raise ValueError("unsupported comparison operator")
         elif kind == "ma_deviation":
-            if condition.get("period", "daily") != "daily" or int(condition.get("ma", 0)) not in {5, 10, 20, 60, 120, 250}: raise ValueError("unsupported MA deviation period")
+            if condition.get("period", "daily") not in indicators.PERIOD_RULES or int(condition.get("ma", 0)) not in {5, 10, 20, 60, 120, 250}: raise ValueError("unsupported MA deviation period")
             if float(required(condition, "max_pct")) < 0: raise ValueError("max_pct must be non-negative")
 
     @staticmethod
     def _factor_names(condition: dict) -> list[str]:
-        if factor_store is None or condition.get("type") not in {"factor", "ma_cross", "ma_deviation"}: return []
-        if condition["type"] == "factor": return [str(condition["name"])]
-        if "ma_fast" in condition: return [f"ma_{int(condition['ma_fast'])}", f"ma_{int(condition['ma_slow'])}"]
-        return [f"ma_{int(condition['ma'])}"]
+        if factor_store is None or condition.get("type") != "factor": return []
+        return [str(condition["name"])]
 
     def _recalculate(self) -> None:
         stocks = list(self._universe)

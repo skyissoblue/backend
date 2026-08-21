@@ -4,6 +4,13 @@ from collections.abc import Mapping
 from typing import Any
 import pandas as pd
 
+PERIOD_RULES = {
+    "daily": None,
+    "weekly": "W-FRI",
+    "monthly": "ME",
+    "yearly": "YE",
+}
+
 def _close_series(data: Any) -> pd.Series:
     if isinstance(data, pd.DataFrame): series = data["close"]
     elif isinstance(data, pd.Series): series = data
@@ -18,6 +25,50 @@ def calc_weekly_ma10(df: pd.DataFrame) -> float:
     weekly = frame.dropna().set_index("date")["close"].sort_index().resample("W-FRI").last().dropna()
     if len(weekly) < 10: raise ValueError("at least 10 weeks of data are required")
     return float(weekly.rolling(10).mean().iloc[-1])
+
+
+def period_closes(df: pd.DataFrame, period: str = "daily") -> pd.Series:
+    """Return closing prices resampled to a supported selection period."""
+    if period not in PERIOD_RULES:
+        raise ValueError(f"unsupported period: {period}")
+    if df.empty or not {"date", "close"}.issubset(df.columns):
+        raise ValueError("daily kline requires date and close columns")
+    frame = df.loc[:, ["date", "close"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    closes = frame.dropna().set_index("date")["close"].sort_index()
+    rule = PERIOD_RULES[period]
+    return closes if rule is None else closes.resample(rule).last().dropna()
+
+
+def calc_period_ma(df: pd.DataFrame, ma: int, period: str = "daily") -> float:
+    """Calculate the latest MA on daily, weekly, monthly or yearly closes."""
+    window = int(ma)
+    if window <= 0:
+        raise ValueError("MA window must be positive")
+    closes = period_closes(df, period)
+    if len(closes) < window:
+        raise ValueError(f"at least {window} {period} bars are required")
+    return float(closes.rolling(window).mean().iloc[-1])
+
+
+def calc_period_ma_cross(
+    df: pd.DataFrame,
+    ma_fast: int,
+    ma_slow: int,
+    period: str = "daily",
+    cross: str = "golden",
+) -> bool:
+    """Return whether two period MAs crossed on the latest completed bar."""
+    fast_window, slow_window = int(ma_fast), int(ma_slow)
+    closes = period_closes(df, period)
+    if len(closes) < max(fast_window, slow_window) + 1:
+        return False
+    fast = closes.rolling(fast_window).mean()
+    slow = closes.rolling(slow_window).mean()
+    if cross == "death":
+        return bool(fast.iloc[-2] >= slow.iloc[-2] and fast.iloc[-1] < slow.iloc[-1])
+    return bool(fast.iloc[-2] <= slow.iloc[-2] and fast.iloc[-1] > slow.iloc[-1])
 
 def calc_rps_250(code: str, all_closes: Mapping[str, Any]) -> float:
     returns: dict[str, float] = {}

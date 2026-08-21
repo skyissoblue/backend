@@ -35,9 +35,20 @@ def test_board_aliases(text, board):
     ("站上20日线", {"type": "ma_cross", "period": "daily", "ma": 20, "op": ">="}),
     ("跌破20日线", {"type": "ma_cross", "period": "daily", "ma": 20, "op": "<"}),
     ("5日线上穿10日线", {"type": "ma_cross", "period": "daily", "ma_fast": 5, "ma_slow": 10, "cross": "golden"}),
+    ("站上5月线", {"type": "ma_cross", "period": "monthly", "ma": 5, "op": ">="}),
+    ("跌破10年线", {"type": "ma_cross", "period": "yearly", "ma": 10, "op": "<"}),
+    ("5周线金叉10周线", {"type": "ma_cross", "period": "weekly", "ma_fast": 5, "ma_slow": 10, "cross": "golden"}),
+    ("5月线死叉10月线", {"type": "ma_cross", "period": "monthly", "ma_fast": 5, "ma_slow": 10, "cross": "death"}),
 ])
 def test_ma_aliases(text, expected):
     assert parser.parse(text)["condition"] == expected
+
+
+def test_ma_deviation_supports_monthly_and_yearly_periods():
+    assert parser.parse("偏离10月线不超过8%")['condition'] == {
+        "type": "ma_deviation", "period": "monthly", "ma": 10, "max_pct": 8.0,
+    }
+    assert parser.parse("偏离5年线不超过12%")['condition']["period"] == "yearly"
 
 
 def test_fuzzy_strength_and_composite():

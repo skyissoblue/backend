@@ -43,9 +43,10 @@ def build_system_prompt(context: list[dict] | None = None) -> str:
 映射规则：
 - 3/300/301开头、创业板票→board_match创业板；688/科创→科创板；60或00开头→主板；8或4开头、北交→北交所。
 - 不要ST、排除ST、非ST→exclude_st=true。
-- 站上10周线→ma_cross(period=weekly,ma=10,op=>=)；跌破20日线→ma_cross(period=daily,ma=20,op=<)。
-- 5日线上穿10日线→ma_cross(period=daily,ma_fast=5,ma_slow=10,cross=golden)。
-- 偏离10周线不超过10%→ma_deviation(period=weekly,ma=10,max_pct=10)。
+- period 仅允许 daily、weekly、monthly、yearly，分别对应日线、周线、月线、年线。
+- 站上10周线→ma_cross(period=weekly,ma=10,op=>=)；跌破20日线→ma_cross(period=daily,ma=20,op=<)；站上5月线→ma_cross(period=monthly,ma=5,op=>=)。
+- 5日线上穿10日线→ma_cross(period=daily,ma_fast=5,ma_slow=10,cross=golden)；5月线死叉10月线使用monthly和death。
+- 偏离10周线不超过10%→ma_deviation(period=weekly,ma=10,max_pct=10)，月线、年线同理。
 - RPS前5%→rps>=95；强势/涨得好→rps>=80；低位/超跌→rps<=20。
 - 放量→volume_ratio>=2；缩量→volume_ratio<=0.8；热门活跃→volume_ratio>=1.5。
 - 低位放量启动必须拆成 rps<=30 和 volume_ratio>=2 两项。
