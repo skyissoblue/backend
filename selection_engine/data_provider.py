@@ -81,15 +81,23 @@ def get_etf_daily_kline(code: str, start_date: date | None = None) -> pd.DataFra
     end = date.today()
     start = start_date or (end - timedelta(days=550))
     normalized = str(code).zfill(6)
-    raw = _retry(
-        lambda: _akshare().fund_etf_hist_em(
-            symbol=normalized,
-            period="daily",
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-            adjust="qfq",
+    try:
+        raw = _retry(
+            lambda: _akshare().fund_etf_hist_em(
+                symbol=normalized,
+                period="daily",
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+                adjust="qfq",
+            ),
+            attempts=1,
         )
-    )
+    except Exception:
+        exchange = "sh" if normalized.startswith("5") else "sz"
+        raw = _retry(lambda: _akshare().fund_etf_hist_sina(symbol=f"{exchange}{normalized}"))
+        if "date" in raw.columns:
+            dates = pd.to_datetime(raw["date"], errors="coerce")
+            raw = raw.loc[(dates.dt.date >= start) & (dates.dt.date <= end)]
     return _normalize_kline(raw, code)
 
 def _board_for_code(code: str) -> str:

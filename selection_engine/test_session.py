@@ -26,6 +26,10 @@ class FakeAkShare:
         dates = pd.bdate_range("2025-01-01", periods=260)
         close = [2 + index * 0.01 for index in range(260)]
         return pd.DataFrame({"日期":dates, "开盘":close, "最高":[x+0.1 for x in close], "最低":[x-0.1 for x in close], "收盘":close, "成交量":[1000+i for i in range(260)], "成交额":[100000+i for i in range(260)]})
+    def fund_etf_hist_sina(self, symbol):
+        dates = pd.bdate_range("2025-01-01", periods=260)
+        close = [2 + index * 0.01 for index in range(260)]
+        return pd.DataFrame({"date":dates, "open":close, "high":[x+0.1 for x in close], "low":[x-0.1 for x in close], "close":close, "volume":[1000+i for i in range(260)], "amount":[100000+i for i in range(260)]})
 
 @pytest.fixture
 def fake_ak(monkeypatch):
@@ -52,6 +56,12 @@ def test_get_etf_daily_kline_normalizes_columns(fake_ak):
     result = data_provider.get_etf_daily_kline("510300")
     assert list(result.columns) == ["date","open","high","low","close","volume","amount"]
     assert len(result) == 260
+
+def test_get_etf_daily_kline_falls_back_to_sina(fake_ak, monkeypatch):
+    monkeypatch.setattr(fake_ak, "fund_etf_hist_em", lambda **kwargs: (_ for _ in ()).throw(ConnectionError("blocked")))
+    result = data_provider.get_etf_daily_kline("510300")
+    assert not result.empty
+    assert result.iloc[-1]["close"] > result.iloc[0]["close"]
 
 def test_get_stock_info(fake_ak):
     info = data_provider.get_stock_info("688001")
