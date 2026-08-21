@@ -1,4 +1,4 @@
-"""Real A-share data access backed by AkShare."""
+"""Real A-share and ETF data access backed by AkShare."""
 from __future__ import annotations
 from datetime import date, timedelta
 import time
@@ -31,15 +31,27 @@ def get_all_stocks() -> pd.DataFrame:
     result["name"] = result["name"].astype(str).str.strip()
     return result.drop_duplicates("code").reset_index(drop=True)
 
-def get_daily_kline(code: str, start_date: date | None = None) -> pd.DataFrame:
-    end = date.today()
-    start = start_date or (end - timedelta(days=550))
-    normalized = str(code).zfill(6)
-    try:
-        raw = _retry(lambda: _akshare().stock_zh_a_hist(symbol=normalized, period="daily", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="qfq"))
-    except Exception:
-        exchange = "sh" if normalized.startswith(("5", "6", "9")) else "bj" if normalized.startswith(("4", "8")) else "sz"
-        raw = _retry(lambda: _akshare().stock_zh_a_daily(symbol=f"{exchange}{normalized}", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="qfq"))
+
+def get_all_etfs() -> pd.DataFrame:
+    """Return every exchange-traded fund exposed by the Eastmoney feed."""
+    raw = _retry(lambda: _akshare().fund_etf_spot_em())
+    frame = raw.rename(columns={"代码": "code", "名称": "name"})
+    if not {"code", "name"}.issubset(frame.columns):
+        raise ValueError("AkShare ETF list is missing code/name columns")
+    result = frame.loc[:, ["code", "name"]].copy()
+    result["code"] = result["code"].astype(str).str.strip().str.zfill(6)
+    result["name"] = result["name"].astype(str).str.strip()
+    return result.drop_duplicates("code").reset_index(drop=True)
+
+
+def get_all_securities() -> pd.DataFrame:
+    """Return the combined A-share and ETF universe with asset metadata."""
+    stocks = get_all_stocks().assign(asset_type="stock")
+    etfs = get_all_etfs().assign(asset_type="etf")
+    return pd.concat([stocks, etfs], ignore_index=True).drop_duplicates("code")
+
+
+def _normalize_kline(raw: pd.DataFrame, code: str) -> pd.DataFrame:
     frame = raw.rename(columns={"日期":"date", "开盘":"open", "最高":"high", "最低":"low", "收盘":"close", "成交量":"volume", "成交额":"amount"})
     if "amount" not in frame.columns and {"close", "volume"}.issubset(frame.columns):
         frame["amount"] = pd.to_numeric(frame["close"], errors="coerce") * pd.to_numeric(frame["volume"], errors="coerce")
@@ -51,6 +63,34 @@ def get_daily_kline(code: str, start_date: date | None = None) -> pd.DataFrame:
     for column in required[1:]:
         result[column] = pd.to_numeric(result[column], errors="coerce")
     return result.dropna(subset=required).sort_values("date").reset_index(drop=True)
+
+def get_daily_kline(code: str, start_date: date | None = None) -> pd.DataFrame:
+    end = date.today()
+    start = start_date or (end - timedelta(days=550))
+    normalized = str(code).zfill(6)
+    try:
+        raw = _retry(lambda: _akshare().stock_zh_a_hist(symbol=normalized, period="daily", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="qfq"))
+    except Exception:
+        exchange = "sh" if normalized.startswith(("5", "6", "9")) else "bj" if normalized.startswith(("4", "8")) else "sz"
+        raw = _retry(lambda: _akshare().stock_zh_a_daily(symbol=f"{exchange}{normalized}", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="qfq"))
+    return _normalize_kline(raw, code)
+
+
+def get_etf_daily_kline(code: str, start_date: date | None = None) -> pd.DataFrame:
+    """Fetch adjusted daily bars for one ETF."""
+    end = date.today()
+    start = start_date or (end - timedelta(days=550))
+    normalized = str(code).zfill(6)
+    raw = _retry(
+        lambda: _akshare().fund_etf_hist_em(
+            symbol=normalized,
+            period="daily",
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+            adjust="qfq",
+        )
+    )
+    return _normalize_kline(raw, code)
 
 def _board_for_code(code: str) -> str:
     if code.startswith(("300", "301")): return "创业板"
@@ -74,6 +114,19 @@ def get_stock_info(code: str) -> dict[str, Any]:
 def get_market_snapshot() -> pd.DataFrame:
     """Fetch one bulk quote snapshot for valuation fields."""
     raw = _retry(lambda: _akshare().stock_zh_a_spot_em())
+    frame = raw.rename(columns={"代码": "code", "名称": "name", "最新价": "close", "总市值": "market_cap", "市盈率-动态": "pe"})
+    columns = [column for column in ("code", "name", "close", "market_cap", "pe") if column in frame.columns]
+    result = frame.loc[:, columns].copy()
+    result["code"] = result["code"].astype(str).str.zfill(6)
+    for column in ("close", "market_cap", "pe"):
+        if column in result:
+            result[column] = pd.to_numeric(result[column], errors="coerce")
+    return result.drop_duplicates("code")
+
+
+def get_etf_market_snapshot() -> pd.DataFrame:
+    """Fetch one bulk ETF quote snapshot."""
+    raw = _retry(lambda: _akshare().fund_etf_spot_em())
     frame = raw.rename(columns={"代码": "code", "名称": "name", "最新价": "close", "总市值": "market_cap", "市盈率-动态": "pe"})
     columns = [column for column in ("code", "name", "close", "market_cap", "pe") if column in frame.columns]
     result = frame.loc[:, columns].copy()

@@ -19,6 +19,12 @@ class FakeAkShare:
     def stock_individual_info_em(self, symbol):
         industry = "科技" if symbol in {"000001","688001"} else "其他"
         return pd.DataFrame({"item":["股票简称","行业","总市值","市盈率(TTM)"], "value":[f"股票{symbol}",industry,int(symbol[-1] or 1)*10_000_000_000,20.5]})
+    def fund_etf_spot_em(self):
+        return pd.DataFrame({"代码": ["510300", "159915"], "名称": ["沪深300ETF", "创业板ETF"], "最新价": [4.1, 2.3]})
+    def fund_etf_hist_em(self, **kwargs):
+        dates = pd.bdate_range("2025-01-01", periods=260)
+        close = [2 + index * 0.01 for index in range(260)]
+        return pd.DataFrame({"日期":dates, "开盘":close, "最高":[x+0.1 for x in close], "最低":[x-0.1 for x in close], "收盘":close, "成交量":[1000+i for i in range(260)], "成交额":[100000+i for i in range(260)]})
 
 @pytest.fixture
 def fake_ak(monkeypatch):
@@ -35,6 +41,16 @@ def test_get_daily_kline_normalizes_columns(fake_ak):
     result = data_provider.get_daily_kline("000001")
     assert list(result.columns) == ["date","open","high","low","close","volume","amount"]
     assert pd.api.types.is_datetime64_any_dtype(result["date"])
+
+def test_get_all_securities_includes_etfs(fake_ak):
+    result = data_provider.get_all_securities()
+    assert len(result) == 6
+    assert result.loc[result["code"] == "510300", "asset_type"].iloc[0] == "etf"
+
+def test_get_etf_daily_kline_normalizes_columns(fake_ak):
+    result = data_provider.get_etf_daily_kline("510300")
+    assert list(result.columns) == ["date","open","high","low","close","volume","amount"]
+    assert len(result) == 260
 
 def test_get_stock_info(fake_ak):
     info = data_provider.get_stock_info("688001")

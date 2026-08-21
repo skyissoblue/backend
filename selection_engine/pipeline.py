@@ -48,16 +48,27 @@ class MarketDataPipeline:
 
     def refresh_universe(self) -> int:
         """Refresh stock names and bulk valuation data."""
-        universe = data_provider.get_all_stocks()
+        universe = data_provider.get_all_securities()
         try:
-            snapshot = data_provider.get_market_snapshot().set_index("code").to_dict("index")
+            snapshots = pd.concat(
+                [data_provider.get_market_snapshot(), data_provider.get_etf_market_snapshot()],
+                ignore_index=True,
+            )
+            snapshot = snapshots.drop_duplicates("code", keep="last").set_index("code").to_dict("index")
         except Exception as error:
             logger.warning("bulk quote snapshot failed: %s", error)
             snapshot = {}
         rows = []
         for item in universe.to_dict("records"):
             quote = snapshot.get(item["code"], {})
-            rows.append({"code": item["code"], "name": item["name"], "board": _board(item["code"]), **quote})
+            is_etf = item.get("asset_type") == "etf"
+            rows.append({
+                "code": item["code"],
+                "name": item["name"],
+                "industry": "ETF" if is_etf else None,
+                "board": "ETF" if is_etf else _board(item["code"]),
+                **quote,
+            })
         upsert_stocks(rows)
         return len(rows)
 
@@ -85,14 +96,21 @@ class MarketDataPipeline:
             try:
                 existing = local_store.load(code)
                 start = None if existing.empty else existing["date"].max().date() - timedelta(days=7)
-                fresh = data_provider.get_daily_kline(code, start_date=start)
+                is_etf = metadata[code].get("board") == "ETF"
+                provider = data_provider.get_etf_daily_kline if is_etf else data_provider.get_daily_kline
+                fresh = provider(code, start_date=start)
                 if not fresh.empty:
                     local_store.save(code, fresh)
                 frame = local_store.load(code)
                 if frame.empty:
                     raise ValueError("no local kline data")
-                detail = {"code": code, "name": metadata[code]["name"], "board": _board(code)}
-                if index < DETAIL_BATCH_SIZE:
+                detail = {
+                    "code": code,
+                    "name": metadata[code]["name"],
+                    "industry": "ETF" if is_etf else metadata[code].get("industry"),
+                    "board": "ETF" if is_etf else _board(code),
+                }
+                if not is_etf and index < DETAIL_BATCH_SIZE:
                     try:
                         detail.update(data_provider.get_stock_info(code))
                     except Exception as error:
