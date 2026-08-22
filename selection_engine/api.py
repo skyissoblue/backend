@@ -11,12 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from .schemas import (
     ConditionRequest,
     ConditionsResponse,
+    CreateSessionRequest,
+    DropSessionResponse,
     PaginatedStocksResponse,
     ParseApplyResponse,
     ParseConditionRequest,
+    RenameSessionRequest,
+    RenameSessionResponse,
     SelectionResponse,
     SessionCreatedResponse,
+    SessionDetailResponse,
     SessionResetResponse,
+    SessionSummaryResponse,
 )
 from .nlu import parse as parse_condition
 from .session import SelectionSession
@@ -32,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 session_store: dict[str, SelectionSession] = {}
+session_names: dict[str, str] = {}
 
 
 @app.on_event("startup")
@@ -70,7 +77,7 @@ def _get_session(session_id: str) -> SelectionSession:
 def _run_engine(operation, *args: Any) -> dict:
     try:
         return operation(*args)
-    except (TypeError, ValueError, KeyError) as error:
+    except (TypeError, ValueError, KeyError, IndexError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(error),
@@ -78,11 +85,54 @@ def _run_engine(operation, *args: Any) -> dict:
 
 
 @app.post("/api/session", response_model=SessionCreatedResponse)
-def create_session() -> dict[str, Any]:
+def create_session(request: CreateSessionRequest | None = None) -> dict[str, Any]:
     session = SelectionSession()
     session_id = uuid4().hex
     session_store[session_id] = session
-    return {"session_id": session_id, "total": len(session.stocks)}
+    name = request.name.strip() if request and request.name else f"组合{len(session_store)}"
+    session_names[session_id] = name
+    return {"session_id": session_id, "name": name, "total": len(session.stocks)}
+
+
+@app.get("/api/session", response_model=list[SessionSummaryResponse])
+def list_sessions() -> list[dict[str, Any]]:
+    return [
+        {
+            "session_id": session_id,
+            "name": session_names.get(session_id, "未命名组合"),
+            "current_count": len(session.stocks),
+            "condition_count": len(session.conditions),
+        }
+        for session_id, session in session_store.items()
+    ]
+
+
+@app.get("/api/session/{session_id}", response_model=SessionDetailResponse)
+def get_session_detail(session_id: str) -> dict[str, Any]:
+    session = _get_session(session_id)
+    return {
+        "session_id": session_id,
+        "name": session_names.get(session_id, "未命名组合"),
+        "conditions": session.conditions,
+        "total": session.total,
+        "current_count": len(session.stocks),
+        "stocks": session.stocks,
+    }
+
+
+@app.post("/api/session/{session_id}/rename", response_model=RenameSessionResponse)
+def rename_session(session_id: str, request: RenameSessionRequest) -> dict[str, str]:
+    _get_session(session_id)
+    session_names[session_id] = request.name.strip()
+    return {"session_id": session_id, "name": session_names[session_id]}
+
+
+@app.delete("/api/session/{session_id}/drop", response_model=DropSessionResponse)
+def drop_session(session_id: str) -> dict[str, bool]:
+    _get_session(session_id)
+    del session_store[session_id]
+    session_names.pop(session_id, None)
+    return {"dropped": True}
 
 
 @app.post(
@@ -103,6 +153,14 @@ def apply_condition(
 )
 def remove_last_condition(session_id: str) -> dict:
     return _get_session(session_id).remove_last()
+
+
+@app.delete(
+    "/api/session/{session_id}/condition/{index}",
+    response_model=SelectionResponse,
+)
+def remove_condition(session_id: str, index: int) -> dict:
+    return _run_engine(_get_session(session_id).remove_at, index)
 
 
 @app.delete(

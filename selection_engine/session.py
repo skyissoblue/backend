@@ -46,6 +46,9 @@ class SelectionSession:
     @property
     def conditions(self) -> list[dict[str, Any]]: return deepcopy(self._conditions)
 
+    @property
+    def total(self) -> int: return len(self._universe)
+
     def apply_condition(self, condition: dict) -> dict:
         self._validate_condition(condition)
         for name in self._factor_names(condition):
@@ -60,6 +63,15 @@ class SelectionSession:
         before = len(self._stocks)
         if self._conditions:
             self._conditions.pop(); self._recalculate()
+        return self._result(before)
+
+    def remove_at(self, index: int) -> dict:
+        """Remove one condition by position and rebuild from the universe."""
+        if index < 0 or index >= len(self._conditions):
+            raise IndexError("condition index out of range")
+        before = len(self._stocks)
+        self._conditions.pop(index)
+        self._recalculate()
         return self._result(before)
 
     def remove_specific(self, condition: dict) -> dict:

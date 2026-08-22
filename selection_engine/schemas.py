@@ -15,6 +15,14 @@ class ParseConditionRequest(BaseModel):
     text: str = Field(min_length=1)
 
 
+class CreateSessionRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+
+
+class RenameSessionRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
 class StockResponse(BaseModel):
     code: str
     name: str
@@ -22,7 +30,33 @@ class StockResponse(BaseModel):
 
 class SessionCreatedResponse(BaseModel):
     session_id: str
+    name: str
     total: int
+
+
+class SessionSummaryResponse(BaseModel):
+    session_id: str
+    name: str
+    current_count: int
+    condition_count: int
+
+
+class SessionDetailResponse(BaseModel):
+    session_id: str
+    name: str
+    conditions: list[dict[str, Any]]
+    total: int
+    current_count: int
+    stocks: list[StockResponse]
+
+
+class RenameSessionResponse(BaseModel):
+    session_id: str
+    name: str
+
+
+class DropSessionResponse(BaseModel):
+    dropped: bool
 
 
 class SelectionResponse(BaseModel):

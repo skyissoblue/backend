@@ -32,9 +32,11 @@ def client(monkeypatch):
     monkeypatch.setattr(data_provider, "get_all_stocks", _stocks)
     monkeypatch.setattr(data_provider, "get_stock_info", _stock_info)
     api.session_store.clear()
+    api.session_names.clear()
     with TestClient(api.app) as test_client:
         yield test_client
     api.session_store.clear()
+    api.session_names.clear()
 
 
 def _create_session(client: TestClient) -> str:
@@ -53,6 +55,52 @@ def test_health(client):
 def test_create_session(client):
     session_id = _create_session(client)
     assert session_id in api.session_store
+
+
+def test_combo_list_detail_rename_and_drop(client):
+    response = client.post("/api/session", json={"name": "科技强势"})
+    assert response.status_code == 200
+    session_id = response.json()["session_id"]
+    assert response.json()["name"] == "科技强势"
+
+    response = client.get("/api/session")
+    assert response.json()[0]["condition_count"] == 0
+    assert response.json()[0]["current_count"] == 4
+
+    response = client.post(
+        f"/api/session/{session_id}/condition",
+        json={"type": "industry", "value": "科技"},
+    )
+    assert response.status_code == 200
+    detail = client.get(f"/api/session/{session_id}").json()
+    assert detail["name"] == "科技强势"
+    assert detail["current_count"] == 2
+    assert len(detail["conditions"]) == 1
+
+    response = client.post(
+        f"/api/session/{session_id}/rename", json={"name": "科技精选"}
+    )
+    assert response.json()["name"] == "科技精选"
+    assert client.delete(f"/api/session/{session_id}/drop").json() == {"dropped": True}
+    assert client.get(f"/api/session/{session_id}").status_code == 404
+
+
+def test_remove_condition_by_index_recalculates(client):
+    session_id = _create_session(client)
+    client.post(
+        f"/api/session/{session_id}/condition",
+        json={"type": "industry", "value": "科技"},
+    )
+    client.post(
+        f"/api/session/{session_id}/condition",
+        json={"type": "market_cap", "op": "<", "value": 20_000_000_000},
+    )
+    response = client.delete(f"/api/session/{session_id}/condition/0")
+    assert response.status_code == 200
+    assert response.json()["after"] == 4
+    assert client.get(f"/api/session/{session_id}/conditions").json() == [
+        {"type": "market_cap", "op": "<", "value": 20_000_000_000}
+    ]
 
 
 def test_apply_condition_and_list_conditions(client):
