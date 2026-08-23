@@ -63,6 +63,7 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       NO_PROXY: "*"
       no_proxy: "*"
     depends_on:
