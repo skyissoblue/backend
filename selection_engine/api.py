@@ -40,6 +40,7 @@ from .auth.password import hash_password, verify_password
 from .nlu import parse as parse_condition
 from .session import SelectionSession
 from .scheduler import start_scheduler, stop_scheduler
+from . import local_store
 
 
 app = FastAPI(title="Progressive Stock Selection API", version="1.0.0")
@@ -203,6 +204,16 @@ def factors(kind: str | None = Query(default=None, pattern="^(ta|alpha|pattern)$
     auto_discover()
     items = [item for item in list_all() if kind is None or item["kind"] == kind]
     return {"total": len(items), "factors": items}
+
+
+@app.get("/api/stock/{code}/kline")
+def stock_kline(code: str, period: str = Query(default="daily", pattern="^(daily|weekly|monthly|yearly)$"), user: dict = Depends(get_current_user)) -> list[dict[str, Any]]:
+    frame = local_store.load(code)
+    if frame.empty: raise HTTPException(status_code=404, detail="kline not found")
+    if period != "daily":
+        rules = {"weekly": "W-FRI", "monthly": "ME", "yearly": "YE"}
+        frame = frame.set_index("date").resample(rules[period]).agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum","amount":"sum"}).dropna(subset=["open","close"]).reset_index()
+    return [{"date": row.date.date().isoformat(), "open": float(row.open), "high": float(row.high), "low": float(row.low), "close": float(row.close), "volume": float(row.volume), "amount": float(row.amount)} for row in frame.itertuples()]
 
 
 def _get_session(session_id: str) -> SelectionSession:
