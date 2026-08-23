@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -69,6 +70,7 @@ def run_all(kind: str | None = None, codes: list[str] | None = None) -> dict[str
                 logger.exception("stock factor calculation failed code=%s", code)
     if pending:
         redis_store.batch_set_hash("stock", pending)
+    redis_store.client().hset("factor:meta", mapping={"total": succeeded, "last_update": datetime.now(timezone.utc).isoformat(), "version": "1"})
     FAILED_FILE.parent.mkdir(parents=True, exist_ok=True)
     FAILED_FILE.write_text(json.dumps({"kind": kind, "codes": failed}, ensure_ascii=False), encoding="utf-8")
     stats = {"total": len(selected), "success": succeeded, "failed": len(failed), "partial": partial, "factor_count": len(factors)}

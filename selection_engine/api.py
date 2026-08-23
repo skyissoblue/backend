@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 import json
+import os
+import tempfile
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
@@ -41,6 +43,7 @@ from .nlu import parse as parse_condition
 from .session import SelectionSession
 from .scheduler import start_scheduler, stop_scheduler
 from . import local_store
+from . import voice
 
 
 app = FastAPI(title="Progressive Stock Selection API", version="1.0.0")
@@ -66,8 +69,40 @@ def shutdown() -> None:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    mysql_ok = database.health_check()
+    try:
+        from factor_system import redis_store as factor_redis
+
+        redis_ok = factor_redis.health_check()
+        meta = factor_redis.client().hgetall("factor:meta") if redis_ok else {}
+    except Exception:
+        redis_ok = False
+        meta = {}
+    return {"status": "ok" if mysql_ok and redis_ok else "degraded", "mysql": mysql_ok, "redis": redis_ok, "factors": meta}
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(get_current_user)) -> dict[str, str]:
+    suffix = os.path.splitext(audio.filename or "recording.wav")[1] or ".wav"
+    temporary = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    path = temporary.name
+    try:
+        while chunk := await audio.read(1024 * 1024):
+            temporary.write(chunk)
+        temporary.close()
+        text = voice.transcribe(path)
+        if not text:
+            raise HTTPException(status_code=422, detail="no speech recognized")
+        return {"text": text}
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="voice transcription unavailable") from error
+    finally:
+        temporary.close()
+        if os.path.exists(path):
+            os.unlink(path)
 
 
 @app.post("/api/auth/register", response_model=AuthResponse, status_code=201)

@@ -49,7 +49,8 @@ def _create_session(client: TestClient) -> str:
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json()["status"] in {"ok", "degraded"}
+    assert {"mysql", "redis", "factors"}.issubset(response.json())
 
 
 def test_create_session(client):

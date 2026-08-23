@@ -60,6 +60,9 @@ services:
       DEEPSEEK_MAX_RETRIES: ${DEEPSEEK_MAX_RETRIES:-2}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       NO_PROXY: "*"
       no_proxy: "*"
     depends_on:
@@ -71,6 +74,7 @@ services:
       - "8000:8000"
     volumes:
       - stock_data:/data
+      - whisper_models:/models
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s
@@ -82,3 +86,4 @@ volumes:
   mysql_data:
   redis_data:
   stock_data:
+  whisper_models:
