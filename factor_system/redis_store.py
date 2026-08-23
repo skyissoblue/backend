@@ -81,6 +81,19 @@ def batch_get_factor(codes: list[str], factor_name: str) -> dict[str, float | bo
     return result
 
 
+def batch_get_multi(codes: list[str], fields: list[str]) -> dict[str, dict[str, float | bool | None]]:
+    """Fetch several factor fields for a universe with bounded pipelines."""
+    result: dict[str, dict[str, float | bool | None]] = {}
+    for start in range(0, len(codes), BATCH_SIZE):
+        batch = codes[start:start + BATCH_SIZE]
+        pipe = client().pipeline(transaction=False)
+        for code in batch:
+            pipe.hmget(f"stock:{str(code).zfill(6)}", fields)
+        for code, values in zip(batch, pipe.execute()):
+            result[code] = {field: _decode(value) for field, value in zip(fields, values)}
+    return result
+
+
 def health_check() -> bool:
     try:
         return bool(client().ping())

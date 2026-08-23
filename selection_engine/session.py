@@ -1,6 +1,7 @@
 """Progressive stock-selection session using live AkShare data."""
 from __future__ import annotations
 import os
+import numpy as np
 from copy import deepcopy
 from typing import Any
 from . import data_provider, indicators, local_store
@@ -55,7 +56,7 @@ class SelectionSession:
             if name not in self._factor_values:
                 self._factor_values[name] = factor_store.batch_get_factor([stock["code"] for stock in self._universe], name)
         before = len(self._stocks)
-        self._stocks = [stock for stock in self._stocks if self._matches(stock, condition)]
+        self._stocks = self._filter_stocks(self._stocks, condition)
         self._conditions.append(deepcopy(condition))
         return self._result(before)
 
@@ -64,6 +65,21 @@ class SelectionSession:
         if self._conditions:
             self._conditions.pop(); self._recalculate()
         return self._result(before)
+
+    def _filter_stocks(self, stocks: list[dict[str, Any]], condition: dict) -> list[dict[str, Any]]:
+        """Apply a vector mask for cached factors; use evaluators for other conditions."""
+        if condition.get("type") == "factor" and stocks:
+            name = str(condition["name"])
+            values = self._factor_values.get(name, {})
+            actual = np.array([values.get(stock["code"], np.nan) for stock in stocks], dtype=float)
+            if "op" in condition:
+                target = float(condition["value"])
+                operators = {">": np.greater, ">=": np.greater_equal, "<": np.less, "<=": np.less_equal, "==": np.equal, "!=": np.not_equal}
+                mask = np.isfinite(actual) & operators[str(condition["op"])](actual, target)
+            else:
+                mask = np.isfinite(actual) & (actual.astype(bool) == bool(condition.get("value", True)))
+            return [stock for stock, keep in zip(stocks, mask.tolist()) if keep]
+        return [stock for stock in stocks if self._matches(stock, condition)]
 
     def remove_at(self, index: int) -> dict:
         """Remove one condition by position and rebuild from the universe."""
@@ -228,7 +244,7 @@ class SelectionSession:
 
     def _recalculate(self) -> None:
         stocks = list(self._universe)
-        for condition in self._conditions: stocks = [stock for stock in stocks if self._matches(stock, condition)]
+        for condition in self._conditions: stocks = self._filter_stocks(stocks, condition)
         self._stocks = stocks
 
     def _result(self, before: int) -> dict:
