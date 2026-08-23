@@ -23,6 +23,48 @@ class RenameSessionRequest(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class RegisterRequest(BaseModel):
+    phone: str = Field(pattern=r"^1\d{10}$")
+    password: str = Field(min_length=8, max_length=72)
+    nickname: str | None = Field(default=None, max_length=50)
+
+
+class LoginRequest(BaseModel):
+    phone: str = Field(pattern=r"^1\d{10}$")
+    password: str = Field(min_length=8, max_length=72)
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user_id: int
+    phone: str
+    nickname: str | None = None
+
+
+class UserResponse(BaseModel):
+    user_id: int
+    phone: str
+    nickname: str | None = None
+
+
+class ComboCreateRequest(BaseModel):
+    name: str = Field(default="默认组合", min_length=1, max_length=100)
+
+
+class ComboPatchRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class FavoriteRequest(BaseModel):
+    favorite: bool
+
+
+class WatchlistCreateRequest(BaseModel):
+    stock_code: str = Field(min_length=6, max_length=10)
+    stock_name: str | None = Field(default=None, max_length=64)
+    source_combo_id: int | None = None
+
+
 class StockResponse(BaseModel):
     code: str
     name: str

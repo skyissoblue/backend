@@ -4,18 +4,22 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
+import json
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
     ConditionRequest,
+    AuthResponse,
     ConditionsResponse,
     CreateSessionRequest,
     DropSessionResponse,
     PaginatedStocksResponse,
     ParseApplyResponse,
     ParseConditionRequest,
+    LoginRequest,
+    RegisterRequest,
     RenameSessionRequest,
     RenameSessionResponse,
     SelectionResponse,
@@ -23,7 +27,16 @@ from .schemas import (
     SessionDetailResponse,
     SessionResetResponse,
     SessionSummaryResponse,
+    UserResponse,
+    ComboCreateRequest,
+    ComboPatchRequest,
+    FavoriteRequest,
+    WatchlistCreateRequest,
 )
+from . import database
+from .auth.deps import get_current_user
+from .auth.jwt_handler import create_token
+from .auth.password import hash_password, verify_password
 from .nlu import parse as parse_condition
 from .session import SelectionSession
 from .scheduler import start_scheduler, stop_scheduler
@@ -54,6 +67,134 @@ def shutdown() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
+def register(request: RegisterRequest) -> dict[str, Any]:
+    try:
+        if database.get_user_by_phone(request.phone) is not None:
+            raise HTTPException(status_code=409, detail="phone already registered")
+        user = database.create_user(request.phone, request.nickname, hash_password(request.password))
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="user database unavailable") from error
+    return {"token": create_token(user["id"]), "user_id": user["id"], "phone": user["phone"], "nickname": user.get("nickname")}
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(request: LoginRequest) -> dict[str, Any]:
+    try:
+        user = database.get_user_by_phone(request.phone)
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="user database unavailable") from error
+    if user is None or not verify_password(request.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="invalid phone or password")
+    return {"token": create_token(user["id"]), "user_id": user["id"], "phone": user["phone"], "nickname": user.get("nickname")}
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def me(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    return {"user_id": user["id"], "phone": user["phone"], "nickname": user.get("nickname")}
+
+
+def _json(value: Any) -> list:
+    if isinstance(value, str): return json.loads(value)
+    return value or []
+
+
+def _combo_session(user_id: int, combo_id: int) -> tuple[dict[str, Any], SelectionSession]:
+    combo = database.get_combo(user_id, combo_id)
+    if combo is None: raise HTTPException(status_code=404, detail="combo not found")
+    key = f"combo:{user_id}:{combo_id}"
+    session = session_store.get(key)
+    if session is None:
+        session = SelectionSession()
+        for condition in _json(combo["conditions_json"]): _run_engine(session.apply_condition, condition)
+        session_store[key] = session
+    return combo, session
+
+
+def _save_combo(user_id: int, combo_id: int, session: SelectionSession) -> None:
+    database.update_combo(user_id, combo_id, conditions_json=json.dumps(session.conditions, ensure_ascii=False), result_codes=json.dumps([item["code"] for item in session.stocks]), result_count=len(session.stocks))
+
+
+@app.post("/api/combos", status_code=201)
+def create_combo(request: ComboCreateRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    session = SelectionSession(); combo_id = database.create_combo(user["id"], request.name.strip(), session.total)
+    session_store[f"combo:{user['id']}:{combo_id}"] = session
+    return {"combo_id": combo_id, "name": request.name.strip(), "total": session.total, "current_count": session.total}
+
+
+@app.get("/api/combos")
+def combos(favorite: bool | None = None, user: dict = Depends(get_current_user)) -> list[dict[str, Any]]:
+    return [{"combo_id": row["id"], "name": row["name"], "current_count": row["result_count"], "condition_count": len(_json(row["conditions_json"])), "is_favorite": bool(row["is_favorite"])} for row in database.list_combos(user["id"], favorite)]
+
+
+@app.get("/api/combos/{combo_id}")
+def combo_detail(combo_id: int, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    combo, session = _combo_session(user["id"], combo_id)
+    return {"combo_id": combo_id, "name": combo["name"], "conditions": session.conditions, "total": session.total, "current_count": len(session.stocks), "is_favorite": bool(combo["is_favorite"]), "stocks": session.stocks[:100]}
+
+
+@app.patch("/api/combos/{combo_id}")
+def patch_combo(combo_id: int, request: ComboPatchRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _combo_session(user["id"], combo_id); database.update_combo(user["id"], combo_id, name=request.name.strip()); return {"ok": True}
+
+
+@app.delete("/api/combos/{combo_id}")
+def remove_combo(combo_id: int, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _combo_session(user["id"], combo_id); database.delete_combo(user["id"], combo_id); session_store.pop(f"combo:{user['id']}:{combo_id}", None); return {"ok": True}
+
+
+@app.post("/api/combos/{combo_id}/favorite")
+def favorite_combo(combo_id: int, request: FavoriteRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _combo_session(user["id"], combo_id); database.update_combo(user["id"], combo_id, is_favorite=int(request.favorite)); return {"favorite": request.favorite}
+
+
+@app.post("/api/combos/{combo_id}/condition")
+def combo_condition(combo_id: int, condition: ConditionRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _, session = _combo_session(user["id"], combo_id); result = _run_engine(session.apply_condition, condition.root); _save_combo(user["id"], combo_id, session); return result
+
+
+@app.delete("/api/combos/{combo_id}/condition/{index}")
+def combo_remove_condition(combo_id: int, index: int, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _, session = _combo_session(user["id"], combo_id); result = _run_engine(session.remove_at, index); _save_combo(user["id"], combo_id, session); return {**result, "conditions": session.conditions}
+
+
+@app.post("/api/combos/{combo_id}/parse")
+def combo_parse(combo_id: int, request: ParseConditionRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _, session = _combo_session(user["id"], combo_id); result = _parse_and_apply(session, request.text); _save_combo(user["id"], combo_id, session); return result
+
+
+@app.post("/api/combos/{combo_id}/reset")
+def combo_reset(combo_id: int, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    _, session = _combo_session(user["id"], combo_id); result = session.reset(); _save_combo(user["id"], combo_id, session); return result
+
+
+@app.post("/api/watchlist", status_code=201)
+def add_watchlist(request: WatchlistCreateRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    combo_name = None
+    if request.source_combo_id is not None:
+        combo = database.get_combo(user["id"], request.source_combo_id)
+        if combo is None: raise HTTPException(status_code=404, detail="source combo not found")
+        combo_name = combo["name"]
+    database.upsert_watchlist(user["id"], request.stock_code, request.stock_name, request.source_combo_id, combo_name); return {"ok": True}
+
+
+@app.get("/api/watchlist/by-combo")
+def grouped_watchlist(user: dict = Depends(get_current_user)) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for row in database.list_watchlist(user["id"]):
+        key = str(row.get("source_combo_id") or "other")
+        group = groups.setdefault(key, {"combo_id": row.get("source_combo_id"), "combo_name": row.get("source_combo_name") or "其他", "stocks": []})
+        group["stocks"].append({"code": row["stock_code"], "name": row.get("stock_name"), "note": row.get("note")})
+    return list(groups.values())
+
+
+@app.delete("/api/watchlist/{stock_code}")
+def remove_watchlist(stock_code: str, user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    database.delete_watchlist(user["id"], stock_code); return {"ok": True}
 
 
 @app.get("/api/factors")

@@ -20,6 +20,9 @@ DETAIL_BATCH_SIZE = int(os.getenv("DETAIL_BATCH_SIZE", "5"))
 UPDATE_INTERVAL_MINUTES = int(os.getenv("UPDATE_INTERVAL_MINUTES", "60"))
 REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", "0.3"))
 SCHEDULER_ENABLED = os.getenv("DATA_SCHEDULER_ENABLED", "false").lower() == "true"
+JWT_SECRET = os.getenv("JWT_SECRET", "development-only-change-me-32-bytes")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = int(os.getenv("JWT_EXPIRE_DAYS", "7"))
 
 
 def ensure_dirs() -> None:

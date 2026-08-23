@@ -58,6 +58,8 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
       DEEPSEEK_TIMEOUT: ${DEEPSEEK_TIMEOUT:-10}
       DEEPSEEK_MAX_RETRIES: ${DEEPSEEK_MAX_RETRIES:-2}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRE_DAYS: ${JWT_EXPIRE_DAYS:-7}
       NO_PROXY: "*"
       no_proxy: "*"
     depends_on:

@@ -13,3 +13,6 @@ pyarrow>=14
 APScheduler>=3.10
 TA-Lib>=0.6.5
 tqdm>=4.66
+PyJWT>=2.8
+bcrypt>=4.1
+python-multipart>=0.0.9
