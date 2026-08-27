@@ -19,20 +19,30 @@ except ImportError:
     get_factor_definition = None
 
 class SelectionSession:
-    def __init__(self, limit: int | None = None) -> None:
+    def __init__(self, limit: int | None = None, asset_type: str = "stock") -> None:
+        if asset_type not in {"stock", "etf"}:
+            raise ValueError("asset_type must be 'stock' or 'etf'")
+        if limit is not None and limit < 0:
+            raise ValueError("limit must be non-negative")
+        self.asset_type = asset_type
         self._data_mode = os.getenv("SELECTION_ENGINE_DATA_MODE", "real").lower()
         self._mock_mode = self._data_mode == "mock"
         if self._mock_mode:
             stocks = generate_mock_market()
             self._universe = stocks[:limit] if limit is not None else stocks
         elif self._data_mode == "local":
-            self._universe = database.load_stocks(limit)
+            stocks = database.load_stocks()
+            stocks = [
+                stock
+                for stock in stocks
+                if (stock.get("board") == "ETF") == (asset_type == "etf")
+            ]
+            self._universe = stocks[:limit] if limit is not None else stocks
             if not self._universe:
-                raise RuntimeError("local stock database is empty; run the market data pipeline first")
+                raise RuntimeError(f"local {asset_type} database is empty; run the market data pipeline first")
         else:
-            stocks = data_provider.get_all_stocks()
+            stocks = data_provider.get_all_etfs() if asset_type == "etf" else data_provider.get_all_stocks()
             if limit is not None:
-                if limit < 0: raise ValueError("limit must be non-negative")
                 stocks = stocks.head(limit)
             self._universe = stocks.loc[:, ["code", "name"]].to_dict("records")
         self._conditions: list[dict[str, Any]] = []

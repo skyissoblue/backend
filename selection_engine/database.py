@@ -41,6 +41,14 @@ def init_schema() -> None:
         cursor = conn.cursor()
         for statement in (part.strip() for part in sql.split(";") if part.strip()):
             cursor.execute(statement)
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='selection_combos' AND COLUMN_NAME='asset_type'",
+            (MYSQL_CONFIG["database"],),
+        )
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("ALTER TABLE selection_combos ADD COLUMN asset_type VARCHAR(8) NOT NULL DEFAULT 'stock' AFTER name")
+            cursor.execute("CREATE INDEX idx_combo_asset_type ON selection_combos(user_id,asset_type)")
         conn.commit()
         cursor.close()
 
@@ -124,16 +132,16 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     return _one("SELECT id,phone,nickname FROM users WHERE id=%s", (user_id,))
 
 
-def create_combo(user_id: int, name: str, total: int) -> int:
+def create_combo(user_id: int, name: str, total: int, asset_type: str = "stock") -> int:
     with connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO selection_combos(user_id,name,conditions_json,result_codes,result_count) VALUES (%s,%s,%s,%s,%s)", (user_id, name, "[]", "[]", total))
+        cursor.execute("INSERT INTO selection_combos(user_id,name,asset_type,conditions_json,result_codes,result_count) VALUES (%s,%s,%s,%s,%s,%s)", (user_id, name, asset_type, "[]", "[]", total))
         conn.commit(); combo_id = cursor.lastrowid; cursor.close()
     return combo_id
 
 
 def list_combos(user_id: int, favorite: bool | None = None) -> list[dict[str, Any]]:
-    sql = "SELECT id,name,conditions_json,result_codes,result_count,is_favorite FROM selection_combos WHERE user_id=%s"
+    sql = "SELECT id,name,asset_type,conditions_json,result_codes,result_count,is_favorite FROM selection_combos WHERE user_id=%s"
     params: tuple[Any, ...] = (user_id,)
     if favorite is not None:
         sql += " AND is_favorite=%s"; params += (int(favorite),)
@@ -144,7 +152,7 @@ def list_combos(user_id: int, favorite: bool | None = None) -> list[dict[str, An
 
 
 def get_combo(user_id: int, combo_id: int) -> dict[str, Any] | None:
-    return _one("SELECT id,name,conditions_json,result_codes,result_count,is_favorite FROM selection_combos WHERE id=%s AND user_id=%s", (combo_id, user_id))
+    return _one("SELECT id,name,asset_type,conditions_json,result_codes,result_count,is_favorite FROM selection_combos WHERE id=%s AND user_id=%s", (combo_id, user_id))
 
 
 def update_combo(user_id: int, combo_id: int, **values: Any) -> None:

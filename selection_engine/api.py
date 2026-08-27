@@ -145,7 +145,7 @@ def _combo_session(user_id: int, combo_id: int) -> tuple[dict[str, Any], Selecti
     key = f"combo:{user_id}:{combo_id}"
     session = session_store.get(key)
     if session is None:
-        session = SelectionSession()
+        session = SelectionSession(asset_type=combo.get("asset_type") or "stock")
         for condition in _json(combo["conditions_json"]): _run_engine(session.apply_condition, condition)
         session_store[key] = session
     return combo, session
@@ -157,20 +157,20 @@ def _save_combo(user_id: int, combo_id: int, session: SelectionSession) -> None:
 
 @app.post("/api/combos", status_code=201)
 def create_combo(request: ComboCreateRequest, user: dict = Depends(get_current_user)) -> dict[str, Any]:
-    session = SelectionSession(); combo_id = database.create_combo(user["id"], request.name.strip(), session.total)
+    session = SelectionSession(asset_type=request.asset_type); combo_id = database.create_combo(user["id"], request.name.strip(), session.total, request.asset_type)
     session_store[f"combo:{user['id']}:{combo_id}"] = session
-    return {"combo_id": combo_id, "name": request.name.strip(), "total": session.total, "current_count": session.total}
+    return {"combo_id": combo_id, "name": request.name.strip(), "asset_type": request.asset_type, "total": session.total, "current_count": session.total}
 
 
 @app.get("/api/combos")
 def combos(favorite: bool | None = None, user: dict = Depends(get_current_user)) -> list[dict[str, Any]]:
-    return [{"combo_id": row["id"], "name": row["name"], "current_count": row["result_count"], "condition_count": len(_json(row["conditions_json"])), "is_favorite": bool(row["is_favorite"])} for row in database.list_combos(user["id"], favorite)]
+    return [{"combo_id": row["id"], "name": row["name"], "asset_type": row.get("asset_type") or "stock", "current_count": row["result_count"], "condition_count": len(_json(row["conditions_json"])), "is_favorite": bool(row["is_favorite"])} for row in database.list_combos(user["id"], favorite)]
 
 
 @app.get("/api/combos/{combo_id}")
 def combo_detail(combo_id: int, user: dict = Depends(get_current_user)) -> dict[str, Any]:
     combo, session = _combo_session(user["id"], combo_id)
-    return {"combo_id": combo_id, "name": combo["name"], "conditions": session.conditions, "total": session.total, "current_count": len(session.stocks), "is_favorite": bool(combo["is_favorite"]), "stocks": session.stocks[:100]}
+    return {"combo_id": combo_id, "name": combo["name"], "asset_type": session.asset_type, "conditions": session.conditions, "total": session.total, "current_count": len(session.stocks), "is_favorite": bool(combo["is_favorite"]), "stocks": session.stocks[:100]}
 
 
 @app.patch("/api/combos/{combo_id}")
@@ -273,7 +273,7 @@ def _run_engine(operation, *args: Any) -> dict:
 
 @app.post("/api/session", response_model=SessionCreatedResponse)
 def create_session(request: CreateSessionRequest | None = None) -> dict[str, Any]:
-    session = SelectionSession()
+    session = SelectionSession(asset_type=request.asset_type if request else "stock")
     session_id = uuid4().hex
     session_store[session_id] = session
     name = request.name.strip() if request and request.name else f"组合{len(session_store)}"

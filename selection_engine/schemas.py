@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, RootModel
 
@@ -17,6 +17,7 @@ class ParseConditionRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=40)
+    asset_type: Literal["stock", "etf"] = "stock"
 
 
 class RenameSessionRequest(BaseModel):
@@ -49,6 +50,7 @@ class UserResponse(BaseModel):
 
 class ComboCreateRequest(BaseModel):
     name: str = Field(default="默认组合", min_length=1, max_length=100)
+    asset_type: Literal["stock", "etf"] = "stock"
 
 
 class ComboPatchRequest(BaseModel):

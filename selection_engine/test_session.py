@@ -137,6 +137,24 @@ def test_local_mode_never_calls_akshare(monkeypatch):
     assert session.apply_condition({"type": "ma_cross_weekly"})["after"] == 1
 
 
+def test_local_sessions_separate_stocks_and_etfs(monkeypatch):
+    local_securities = [
+        {"code": "000001", "name": "平安银行", "board": "主板"},
+        {"code": "300001", "name": "特锐德", "board": "创业板"},
+        {"code": "510300", "name": "沪深300ETF", "board": "ETF"},
+    ]
+    monkeypatch.setenv("SELECTION_ENGINE_DATA_MODE", "local")
+    monkeypatch.setattr("selection_engine.database.load_stocks", lambda limit=None: local_securities)
+
+    stock_session = SelectionSession()
+    etf_session = SelectionSession(asset_type="etf")
+
+    assert stock_session.asset_type == "stock"
+    assert [item["code"] for item in stock_session.stocks] == ["000001", "300001"]
+    assert etf_session.asset_type == "etf"
+    assert [item["code"] for item in etf_session.stocks] == ["510300"]
+
+
 @pytest.mark.parametrize("period", ["daily", "weekly", "monthly", "yearly"])
 def test_local_session_executes_period_ma(monkeypatch, period):
     dates = pd.bdate_range("1995-01-01", periods=8000)

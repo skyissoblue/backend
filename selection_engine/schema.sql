@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS selection_combos (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,
   name VARCHAR(100) NOT NULL,
+  asset_type VARCHAR(8) NOT NULL DEFAULT 'stock',
   conditions_json JSON NOT NULL,
   result_codes JSON NOT NULL,
   result_count INT NOT NULL DEFAULT 0,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS selection_combos (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_combo_user (user_id),
+  INDEX idx_combo_asset_type (user_id,asset_type),
   INDEX idx_combo_favorite (user_id,is_favorite)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
