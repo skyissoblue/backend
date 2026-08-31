@@ -49,6 +49,17 @@ def init_schema() -> None:
         if cursor.fetchone()[0] == 0:
             cursor.execute("ALTER TABLE selection_combos ADD COLUMN asset_type VARCHAR(8) NOT NULL DEFAULT 'stock' AFTER name")
             cursor.execute("CREATE INDEX idx_combo_asset_type ON selection_combos(user_id,asset_type)")
+        previous = "close"
+        for window in (5, 10, 20, 60, 120, 250):
+            column = f"daily_ma{window}"
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='stocks' AND COLUMN_NAME=%s",
+                (MYSQL_CONFIG["database"], column),
+            )
+            if cursor.fetchone()[0] == 0:
+                cursor.execute(f"ALTER TABLE stocks ADD COLUMN {column} DOUBLE NULL AFTER {previous}")
+            previous = column
         conn.commit()
         cursor.close()
 
@@ -67,7 +78,7 @@ def upsert_stocks(stocks: list[dict[str, Any]]) -> int:
     """Batch upsert stock metadata and precomputed indicators."""
     if not stocks:
         return 0
-    columns = ("code", "name", "industry", "board", "close", "weekly_ma10", "weekly_deviation", "rps_250", "volume_ratio", "market_cap", "pe", "listed_days")
+    columns = ("code", "name", "industry", "board", "close", "daily_ma5", "daily_ma10", "daily_ma20", "daily_ma60", "daily_ma120", "daily_ma250", "weekly_ma10", "weekly_deviation", "rps_250", "volume_ratio", "market_cap", "pe", "listed_days")
     placeholders = ",".join(["%s"] * len(columns))
     updates = ",".join(f"{name}=COALESCE(VALUES({name}),{name})" for name in columns[1:])
     sql = f"INSERT INTO stocks ({','.join(columns)}) VALUES ({placeholders}) ON DUPLICATE KEY UPDATE {updates}"
@@ -83,7 +94,7 @@ def upsert_stocks(stocks: list[dict[str, Any]]) -> int:
 
 def load_stocks(limit: int | None = None) -> list[dict[str, Any]]:
     """Load the complete local stock snapshot without external requests."""
-    sql = "SELECT code,name,industry,board,close,weekly_ma10,weekly_deviation,rps_250,volume_ratio,market_cap,pe,listed_days FROM stocks ORDER BY code"
+    sql = "SELECT code,name,industry,board,close,daily_ma5,daily_ma10,daily_ma20,daily_ma60,daily_ma120,daily_ma250,weekly_ma10,weekly_deviation,rps_250,volume_ratio,market_cap,pe,listed_days FROM stocks ORDER BY code"
     params: tuple[Any, ...] = ()
     if limit is not None:
         sql += " LIMIT %s"

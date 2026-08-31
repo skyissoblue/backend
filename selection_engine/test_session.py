@@ -121,7 +121,7 @@ def test_market_data_is_cached(fake_ak):
 def test_local_mode_never_calls_akshare(monkeypatch):
     local_stocks = [{
         "code": "000001", "name": "本地科技", "industry": "科技", "board": "主板",
-        "close": 12.0, "weekly_ma10": 10.0, "weekly_deviation": 2.0,
+        "close": 12.0, "daily_ma10": 11.5, "daily_ma250": 11.0, "weekly_ma10": 10.0, "weekly_deviation": 2.0,
         "rps_250": 90.0, "volume_ratio": 2.0, "market_cap": 10_000_000_000,
         "pe": 18.0, "listed_days": 1000,
     }]
@@ -135,6 +135,28 @@ def test_local_mode_never_calls_akshare(monkeypatch):
     result = session.apply_condition({"type": "industry", "value": "科技"})
     assert result["after"] == 1
     assert session.apply_condition({"type": "ma_cross_weekly"})["after"] == 1
+
+
+@pytest.mark.parametrize("window", [5, 10, 20, 60, 120, 250])
+def test_local_daily_ma_uses_precomputed_snapshot(monkeypatch, window):
+    field = f"daily_ma{window}"
+    local_stocks = [
+        {"code": "000001", "name": "均线上方", "board": "主板", "close": 12.0, field: 11.0},
+        {"code": "000002", "name": "均线下方", "board": "主板", "close": 9.0, field: 10.0},
+        {"code": "000003", "name": "数据不足", "board": "主板", "close": 8.0, field: None},
+    ]
+    monkeypatch.setenv("SELECTION_ENGINE_DATA_MODE", "local")
+    monkeypatch.setattr("selection_engine.database.load_stocks", lambda limit=None: local_stocks)
+    monkeypatch.setattr(
+        "selection_engine.local_store.load",
+        lambda code: pytest.fail("MA250 filtering must not scan K-line files"),
+    )
+
+    result = SelectionSession().apply_condition(
+        {"type": "ma_cross", "period": "daily", "ma": window, "op": ">="}
+    )
+
+    assert [stock["code"] for stock in result["stocks"]] == ["000001"]
 
 
 def test_local_sessions_separate_stocks_and_etfs(monkeypatch):
@@ -159,7 +181,13 @@ def test_local_sessions_separate_stocks_and_etfs(monkeypatch):
 def test_local_session_executes_period_ma(monkeypatch, period):
     dates = pd.bdate_range("1995-01-01", periods=8000)
     frame = pd.DataFrame({"date": dates, "close": range(1, len(dates) + 1)})
-    local_stocks = [{"code": "000001", "name": "测试", "board": "主板", "close": 8000.0}]
+    local_stocks = [{
+        "code": "000001",
+        "name": "测试",
+        "board": "主板",
+        "close": 8000.0,
+        "daily_ma5": 7998.0,
+    }]
     monkeypatch.setenv("SELECTION_ENGINE_DATA_MODE", "local")
     monkeypatch.setattr("selection_engine.database.load_stocks", lambda limit=None: local_stocks)
     monkeypatch.setattr("selection_engine.local_store.load", lambda code: frame)

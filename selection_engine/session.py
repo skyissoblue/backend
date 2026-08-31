@@ -156,6 +156,17 @@ class SelectionSession:
                 return self._compare(float(value), condition)
             elif kind == "exclude_st": return "ST" not in str(stock.get("name", "")).upper()
             elif kind == "ma_cross":
+                if (
+                    "ma_fast" not in condition
+                    and str(condition.get("period", "daily")) == "daily"
+                    and int(condition.get("ma", 0)) in {5, 10, 20, 60, 120, 250}
+                ):
+                    field = f"daily_ma{int(condition['ma'])}"
+                    if not self._has(stock, "close", field):
+                        return False
+                    return COMPARATORS[str(condition.get("op", ">="))](
+                        float(stock["close"]), float(stock[field])
+                    )
                 frame = self._cache.get_or_calc(code, local_store.load, code)
                 if frame.empty: return False
                 try:

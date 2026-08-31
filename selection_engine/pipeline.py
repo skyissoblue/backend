@@ -129,6 +129,11 @@ class MarketDataPipeline:
                     **detail,
                     "code": code,
                     "close": close,
+                    **{
+                        f"daily_ma{window}": indicators.calc_period_ma(frame, window, "daily")
+                        if len(frame) >= window else None
+                        for window in (5, 10, 20, 60, 120, 250)
+                    },
                     "weekly_ma10": indicators.calc_weekly_ma10(frame),
                     "weekly_deviation": indicators.calc_ma_deviation_weekly(frame),
                     "volume_ratio": indicators.calc_volume_ratio(frame),

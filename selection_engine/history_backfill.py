@@ -59,6 +59,9 @@ def _download(code: str, name: str) -> tuple[str, int, dict[str, Any]]:
             weekly_deviation=indicators.calc_ma_deviation_weekly(stored),
             volume_ratio=indicators.calc_volume_ratio(stored),
         )
+    for window in (5, 10, 20, 60, 120, 250):
+        if len(stored) >= window:
+            row[f"daily_ma{window}"] = indicators.calc_period_ma(stored, window, "daily")
     time.sleep(REQUEST_DELAY)
     return code, len(stored), row
 
