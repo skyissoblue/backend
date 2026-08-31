@@ -46,6 +46,12 @@ def match_alias(text: str) -> list[dict[str, Any]]:
         conditions.append((1.0, {"type": "exclude_st", "value": True}))
 
     period_names = {"日": "daily", "周": "weekly", "月": "monthly", "年": "yearly"}
+    # In Chinese stock-market terminology, an unqualified "年线" means the
+    # 250-trading-day moving average, not a one-year-period moving average.
+    if re.search(r"(?:跌破|低于)年线|年线(?:以下|下方)", normalized):
+        conditions.append((1.0, {"type": "ma_cross", "period": "daily", "ma": 250, "op": "<"}))
+    elif re.search(r"(?:站上|突破|高于)年线|(?:在|位于|处于)?年线(?:以上|上方)", normalized):
+        conditions.append((1.0, {"type": "ma_cross", "period": "daily", "ma": 250, "op": ">="}))
     standing = re.search(r"(?:站上|高于|在|(?:股价|价格)上穿)(\d+|十|二十)(日|周|月|年)(?:线|均线)|(?:跌破|低于)(\d+|十|二十)(日|周|月|年)(?:线|均线)", normalized, re.I)
     if standing:
         above_value, above_period, below_value, below_period = standing.groups()

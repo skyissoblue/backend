@@ -51,6 +51,22 @@ def test_ma_deviation_supports_monthly_and_yearly_periods():
     assert parser.parse("偏离5年线不超过12%")['condition']["period"] == "yearly"
 
 
+@pytest.mark.parametrize("text,op", [
+    ("年线上方", ">="),
+    ("站上年线", ">="),
+    ("股价高于年线", ">="),
+    ("年线下方", "<"),
+    ("跌破年线", "<"),
+])
+def test_unqualified_annual_line_means_250_day_ma(text, op):
+    assert parser.parse(text)["condition"] == {
+        "type": "ma_cross",
+        "period": "daily",
+        "ma": 250,
+        "op": op,
+    }
+
+
 def test_fuzzy_strength_and_composite():
     assert parser.parse("最近比较强势的")["condition"] == {"type": "rps", "op": ">=", "value": 80}
     result = parser.parse("科技股里站上10周线并且RPS大于87")
