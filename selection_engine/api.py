@@ -44,6 +44,7 @@ from .session import SelectionSession
 from .scheduler import start_scheduler, stop_scheduler
 from . import local_store
 from . import voice
+from .formulas import list_formulas
 
 
 app = FastAPI(title="Progressive Stock Selection API", version="1.0.0")
@@ -239,6 +240,12 @@ def factors(kind: str | None = Query(default=None, pattern="^(ta|alpha|pattern)$
     auto_discover()
     items = [item for item in list_all() if kind is None or item["kind"] == kind]
     return {"total": len(items), "factors": items}
+
+
+@app.get("/api/formulas")
+def formulas() -> dict[str, Any]:
+    items = list_formulas()
+    return {"total": len(items), "formulas": items}
 
 
 @app.get("/api/stock/{code}/kline")

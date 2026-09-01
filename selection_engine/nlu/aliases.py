@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from factor_system.factor_lib.registry import auto_discover, get as get_factor
+from ..formulas import get_formula
 
 FACTOR_ALIASES = {
     "创业板": [("创业板", 1.0), ("3开头", 1.0), ("300开头", 1.0), ("301开头", 1.0)],
@@ -36,6 +37,12 @@ def _comparison(text: str, label: str) -> tuple[str, float] | None:
 def match_alias(text: str) -> list[dict[str, Any]]:
     normalized = re.sub(r"[，。！？、；;\s]", "", text)
     conditions: list[tuple[float, dict[str, Any]]] = []
+
+    formula_match = re.search(r"(?<![a-z0-9_])(mmc_rsi)(?![a-z0-9_])", normalized, re.I)
+    if formula_match:
+        formula = get_formula(formula_match.group(1))
+        if formula:
+            return [formula["condition"]]
 
     for board, aliases in list(FACTOR_ALIASES.items())[:4]:
         confidence = max((score for phrase, score in aliases if phrase.lower() in normalized.lower()), default=0)

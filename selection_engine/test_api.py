@@ -121,6 +121,12 @@ def test_apply_condition_and_list_conditions(client):
     assert response.json() == [condition]
 
 
+def test_builtin_formula_catalog(client):
+    response = client.get("/api/formulas")
+    assert response.status_code == 200
+    assert response.json()["formulas"][0]["name"] == "mmc_rsi"
+
+
 def test_paginated_stocks(client):
     session_id = _create_session(client)
     response = client.get(

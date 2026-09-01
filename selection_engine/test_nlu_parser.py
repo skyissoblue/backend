@@ -113,6 +113,21 @@ def test_control_and_invalid_input():
     assert parser.parse("")["action"] == "error"
 
 
+def test_mmc_rsi_uses_local_builtin_formula(monkeypatch):
+    monkeypatch.setattr(
+        parser,
+        "_deepseek",
+        lambda *_: (_ for _ in ()).throw(AssertionError("DeepSeek must not be called")),
+    )
+    result = parser.parse("帮我运行 mmc_rsi")
+    assert result["source"] == "alias"
+    assert result["condition"] == {
+        "type": "factor",
+        "name": "mmc_rsi",
+        "value": True,
+    }
+
+
 def test_context_format():
     text = NLUContext([{"type": "board", "value": "创业板"}]).to_prompt()
     assert "当前已有条件" in text and "创业板" in text
